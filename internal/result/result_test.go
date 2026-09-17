@@ -17,3 +17,12 @@ func TestNormalizeMachineV1WarningSuggestsMigration(t *testing.T){
 	if len(r.Machine.Warnings)!=1||r.Machine.Warnings[0].Code!="WORKFLOW_V1_COMPAT"{t.Fatalf("%#v",r.Machine)}
 	if len(r.Machine.NextActions)==0||r.Machine.NextActions[0].ID!="migrate"{t.Fatalf("%#v",r.Machine.NextActions)}
 }
+
+func TestNormalizeMachineClosedIssueRequiresExplicitGitHubReopen(t *testing.T){
+	r:=Success("status",nil);r.Lifecycle="READY";r.State="READY";n:=7;r.Issue=&n;r.Warnings=[]string{"GITHUB_ISSUE_CLOSED"};NormalizeMachine(&r)
+	foundConstraint:=false;for _,c:=range r.Machine.Constraints{if c.Code=="GITHUB_ISSUE_CLOSED"&&c.Blocking{foundConstraint=true}}
+	if !foundConstraint{t.Fatalf("constraints=%#v",r.Machine.Constraints)}
+	foundAction:=false;for _,a:=range r.Machine.NextActions{if a.ID=="reopen_github_issue"&&a.Command=="gh issue reopen"&&a.ReasonCode=="GITHUB_ISSUE_CLOSED"&&a.Issue!=nil&&*a.Issue==7{foundAction=true}}
+	if !foundAction{t.Fatalf("actions=%#v",r.Machine.NextActions)}
+	if len(r.Machine.AllowedActions)!=2||r.Machine.AllowedActions[0]!="context"||r.Machine.AllowedActions[1]!="status"{t.Fatalf("allowed=%v",r.Machine.AllowedActions)}
+}
