@@ -11,6 +11,8 @@ type CLI struct {
 	Doctor     *app.DoctorService
 	Init       *app.InitService
 	Workflow   *app.WorkflowService
+	Project    *app.ProjectService
+	Context    *app.ContextService
 	Stdout     io.Writer
 	Stderr     io.Writer
 	Getwd      func() (string, error)

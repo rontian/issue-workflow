@@ -36,8 +36,11 @@ func parse(args []string) (string, options, bool, error) {
 	}
 	pos := tail.Args()
 	switch cmd {
-	case "version", "doctor", "init", "new":
+	case "version", "capabilities", "doctor", "init", "new":
 		if len(pos) != 0 { return cmd, o, false, fmt.Errorf("unexpected positional arguments: %s", strings.Join(pos, " ")) }
+	case "project":
+		if len(pos) != 1 || strings.ToLower(pos[0]) != "status" { return cmd, o, false, errors.New("Usage: iw project status") }
+		cmd = "project status"
 	case "scope":
 		if len(pos) != 2 { return cmd, o, false, errors.New("Usage: iw scope propose|accept|reject <issue>") }
 		a := strings.ToLower(pos[0])
@@ -46,7 +49,7 @@ func parse(args []string) (string, options, bool, error) {
 		n, e := strconv.Atoi(pos[1]); if e != nil || n <= 0 { return cmd, o, false, errors.New("Issue number 必须是正整数") }
 		if o.Issue > 0 && o.Issue != n { return cmd, o, false, errors.New("positional Issue 与 --issue 不一致") }
 		o.Issue = n
-	case "status", "resume", "start", "checkpoint", "handoff", "block", "review", "fix", "final":
+	case "status", "context", "resume", "start", "checkpoint", "handoff", "block", "review", "fix", "final":
 		if len(pos) > 1 { return cmd, o, false, errors.New("只允许一个 Issue number") }
 		if len(pos) == 1 {
 			n, e := strconv.Atoi(pos[0]); if e != nil || n <= 0 { return cmd, o, false, errors.New("Issue number 必须是正整数") }

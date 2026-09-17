@@ -11,6 +11,16 @@ func (c *CLI) runEnvironmentOrRead(ctx context.Context, command string, o option
 	switch command {
 	case "version":
 		return true, c.render(app.VersionResult(), result.ExitOK, o.JSON)
+	case "capabilities":
+		return true, c.render(app.CapabilitiesResult(), result.ExitOK, o.JSON)
+	case "project status":
+		if c.Project == nil { return true, c.render(result.Failure(command, "ENVIRONMENT_INVALID", "project service unavailable", nil, nil), result.ExitEnvironment, o.JSON) }
+		r, code := c.Project.Status(ctx, cwd)
+		return true, c.render(r, code, o.JSON)
+	case "context":
+		if c.Context == nil { return true, c.render(result.Failure(command, "ENVIRONMENT_INVALID", "context service unavailable", nil, nil), result.ExitEnvironment, o.JSON) }
+		r, code := c.Context.Run(ctx, wo)
+		return true, c.render(r, code, o.JSON)
 	case "doctor":
 		if o.Global && (o.Repo != "" || o.Remote != "" || o.Issue > 0) {
 			return true, c.render(result.Failure("doctor", "INVALID_INVOCATION", "--global 不能与 --repo/--remote/--issue 同时使用", nil, nil), result.ExitInvalid, o.JSON)

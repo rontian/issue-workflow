@@ -25,4 +25,6 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/bin"
           GOBIN="$RUNNER_TEMP/bin" go install ./cmd/iw
-          "$RUNNER_TEMP/bin/iw" version --json | grep -q '"schema":"iw.command-result/v1"'
+          "$RUNNER_TEMP/bin/iw" version --json | grep -q '"schema":"iw.command-result/v2"'
+          "$RUNNER_TEMP/bin/iw" capabilities --json | grep -q '"schema":"iw.capabilities/v1"'
+          "$RUNNER_TEMP/bin/iw" capabilities --json | grep -q '"context_schema":"iw.context/v1"'

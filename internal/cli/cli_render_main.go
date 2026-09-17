@@ -20,6 +20,20 @@ func (c *CLI) render(r result.CommandResult, exit int, jsonMode bool) int {
 	switch d := r.Data.(type) {
 	case version.Info:
 		fmt.Fprintf(c.Stdout, "iw %s\nprotocol %s\ncommit %s\nbuild %s\n", d.Version, d.Protocol, d.Commit, d.BuildDate)
+	case app.Capabilities:
+		fmt.Fprintf(c.Stdout, "Protocol: %s\nResult: %s\nContext: %s\n", d.Protocol, d.CommandResultSchema, d.ContextSchema)
+		fmt.Fprintln(c.Stdout, "Lifecycle:")
+		for _, s := range d.Lifecycles { fmt.Fprintf(c.Stdout, "  %s\n", s) }
+	case app.ProjectReport:
+		fmt.Fprintf(c.Stdout, "Project root: %s\nConfigured: %t\n", d.Root, d.Configured)
+		if d.Configured { fmt.Fprintf(c.Stdout, "Config: %s\n", d.ConfigPath) }
+		for _, doc := range d.Docs { fmt.Fprintf(c.Stdout, "Doc: %s exists=%t\n", doc.Path, doc.Exists) }
+		for _, e := range d.Environment { fmt.Fprintf(c.Stdout, "Executable: %s available=%t\n", e.Name, e.Available) }
+	case app.AgentContext:
+		fmt.Fprintf(c.Stdout, "Issue #%d: %s\nLifecycle: %s\n", d.Issue.Number, d.Issue.Title, d.Lifecycle)
+		if d.Phase != "" { fmt.Fprintf(c.Stdout, "Phase: %s\n", d.Phase) }
+		fmt.Fprintf(c.Stdout, "Git: %s %s dirty=%t\n", d.Git.Branch, d.Git.Head, d.Git.Dirty)
+		for _, a := range d.NextActions { fmt.Fprintf(c.Stdout, "Next: %s\n", a) }
 	case app.DoctorReport:
 		renderDoctor(c.Stdout, d)
 	case app.InitReport:

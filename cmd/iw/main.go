@@ -18,7 +18,9 @@ func main() {
 	doctor := &app.DoctorService{Runner: runner, Git: git, GitHub: github}
 	initializer := &app.InitService{Doctor: doctor}
 	workflow := &app.WorkflowService{Runner: runner, Git: git, GitHub: github}
-	command := &cli.CLI{Doctor: doctor, Init: initializer, Workflow: workflow, Stdout: os.Stdout, Stderr: os.Stderr, Getwd: os.Getwd, IsTerminal: stdinIsTerminal}
+	project := &app.ProjectService{Runner: runner, Git: git}
+	contextService := &app.ContextService{Workflow: workflow, Project: project}
+	command := &cli.CLI{Doctor: doctor, Init: initializer, Workflow: workflow, Project: project, Context: contextService, Stdout: os.Stdout, Stderr: os.Stderr, Getwd: os.Getwd, IsTerminal: stdinIsTerminal}
 	os.Exit(command.Run(context.Background(), os.Args[1:]))
 }
 
