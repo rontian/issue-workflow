@@ -20,6 +20,10 @@ func parse(args []string)(string,options,bool,error){
 		if len(pos)!=0{return cmd,o,false,fmt.Errorf("unexpected positional arguments: %s",strings.Join(pos," "))}
 	case "project":
 		if len(pos)!=1||strings.ToLower(pos[0])!="status"{return cmd,o,false,errors.New("Usage: iw project status")};cmd="project status"
+	case "adapter":
+		if len(pos)==1&&strings.ToLower(pos[0])=="list"{cmd="adapter list";break}
+		if len(pos)!=2{return cmd,o,false,errors.New("Usage: iw adapter list | status|doctor|install|update|remove <id>")}
+		a:=strings.ToLower(pos[0]);if a!="status"&&a!="doctor"&&a!="install"&&a!="update"&&a!="remove"{return cmd,o,false,errors.New("adapter action must be list|status|doctor|install|update|remove")};if o.AdapterID!=""&&o.AdapterID!=pos[1]{return cmd,o,false,errors.New("positional adapter 与 --adapter 不一致")};o.AdapterID=pos[1];cmd="adapter "+a
 	case "scope":
 		if len(pos)!=2{return cmd,o,false,errors.New("Usage: iw scope propose|accept|reject <issue>")};a:=strings.ToLower(pos[0]);if a!="propose"&&a!="accept"&&a!="reject"{return cmd,o,false,errors.New("scope action must be propose|accept|reject")};o.ScopeAction=a;n,e:=strconv.Atoi(pos[1]);if e!=nil||n<=0{return cmd,o,false,errors.New("Issue number 必须是正整数")};if o.Issue>0&&o.Issue!=n{return cmd,o,false,errors.New("positional Issue 与 --issue 不一致")};o.Issue=n
 	case "status","context","migrate","resume","start","pause","wait","recheck","defer","restore","checkpoint","handoff","block","review","fix","complete","final","cancel","reopen":

@@ -8,7 +8,7 @@ import(
 
 func flagsBeforePositionals(args []string)([]string,error){
 	flags:=[]string{};pos:=[]string{}
-	value:=map[string]bool{"--repo":true,"--remote":true,"--host":true,"--issue":true,"--operation-id":true,"--run-id":true,"--summary":true,"--next":true,"--reason":true,"--proposal-event":true,"--title":true,"--goal":true,"--contract-id":true,"--pr":true,"--scope":true,"--out-of-scope":true,"--acceptance":true,"--constraint":true,"--validation":true,"--dependency":true,"--warning":true,"--finding":true}
+	value:=map[string]bool{"--repo":true,"--remote":true,"--host":true,"--adapter":true,"--issue":true,"--operation-id":true,"--run-id":true,"--summary":true,"--next":true,"--reason":true,"--proposal-event":true,"--title":true,"--goal":true,"--contract-id":true,"--pr":true,"--scope":true,"--out-of-scope":true,"--acceptance":true,"--constraint":true,"--validation":true,"--dependency":true,"--warning":true,"--finding":true}
 	for i:=0;i<len(args);i++{a:=args[i];if strings.HasPrefix(a,"--"){flags=append(flags,a);name:=a;if j:=strings.IndexByte(a,'=');j>=0{name=a[:j]};if value[name]&&!strings.Contains(a,"="){if i+1>=len(args){return nil,fmt.Errorf("flag %s requires a value",name)};i++;flags=append(flags,args[i])}}else{pos=append(pos,a)}}
 	return append(flags,pos...),nil
 }
@@ -17,8 +17,9 @@ func registerFlags(fs *flag.FlagSet,o *options){
 	fs.StringVar(&o.Repo,"repo",o.Repo,"GitHub repository OWNER/REPO")
 	fs.StringVar(&o.Remote,"remote",o.Remote,"Git remote name")
 	fs.StringVar(&o.Host,"host",o.Host,"GitHub host override")
+	fs.StringVar(&o.AdapterID,"adapter",o.AdapterID,"official Host Adapter id")
 	fs.BoolVar(&o.JSON,"json",o.JSON,"machine-readable JSON output")
-	fs.BoolVar(&o.DryRun,"dry-run",o.DryRun,"preview without remote mutation")
+	fs.BoolVar(&o.DryRun,"dry-run",o.DryRun,"preview without remote/local mutation")
 	fs.BoolVar(&o.Verbose,"verbose",o.Verbose,"verbose diagnostics")
 	fs.BoolVar(&o.Global,"global",o.Global,"global environment mode")
 	fs.IntVar(&o.Issue,"issue",o.Issue,"GitHub Issue number")

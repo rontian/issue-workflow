@@ -15,6 +15,7 @@ type CLI struct {
 	Context *app.ContextService
 	Tasks *app.TaskService
 	Restore *app.RestoreService
+	Adapter *app.AdapterService
 	Stdout io.Writer
 	Stderr io.Writer
 	Getwd func()(string,error)
@@ -26,7 +27,7 @@ func(s *stringList)String()string{return strings.Join(*s,",")}
 func(s *stringList)Set(v string)error{*s=append(*s,v);return nil}
 
 type options struct{
-	Repo,Remote,Host string
+	Repo,Remote,Host,AdapterID string
 	JSON,DryRun,Verbose,Global bool
 	Issue int
 	Interactive bool

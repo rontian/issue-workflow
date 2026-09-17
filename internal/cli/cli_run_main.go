@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"os"
+	"strings"
 
 	"github.com/rontian/issue-workflow/internal/app"
 	"github.com/rontian/issue-workflow/internal/result"
@@ -21,6 +22,7 @@ func (c *CLI) Run(ctx context.Context, args []string) int {
 	if err != nil { return c.render(result.Failure(command, "ENVIRONMENT_INVALID", "无法读取当前目录", nil, nil), result.ExitEnvironment, o.JSON) }
 	needsWorkflow := true
 	switch command { case "version", "capabilities", "doctor", "init", "project status": needsWorkflow = false }
+	if strings.HasPrefix(command,"adapter ") { needsWorkflow=false }
 	if needsWorkflow && c.Workflow == nil { return c.render(result.Failure(command, "ENVIRONMENT_INVALID", "workflow service unavailable", nil, nil), result.ExitEnvironment, o.JSON) }
 	wo := app.WorkflowOptions{CWD: cwd, Repo: o.Repo, Remote: o.Remote, Host: o.Host, Issue: o.Issue}
 	if handled, exit := c.runEnvironmentOrRead(ctx, command, o, wo, cwd); handled { return exit }
