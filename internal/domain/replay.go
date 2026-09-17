@@ -1,244 +1,37 @@
 package domain
 
-import (
-	"fmt"
-	"sort"
-	"strings"
-)
+import("fmt";"sort";"strings")
 
-func ReplayWorkflow(repo string, issue int, events []WorkflowEvent) (WorkflowAggregate, error) {
-	agg := WorkflowAggregate{State: StateReady, Lifecycle: LifecycleReady, Protocol: "none", Events: append([]WorkflowEvent{}, events...), UnresolvedScopeProposals: []string{}, ReviewFindings: []string{}}
-	eventIDs := map[string]struct{}{}
-	ops := map[string]string{}
-	children := map[string]int{}
-	parentKey := func(p *string) string { if p == nil { return "<root>" }; return *p }
-	for _, e := range events {
-		if _, ok := eventIDs[e.EventID]; ok { return agg, NewWorkflowError("PROTOCOL_ERROR", "duplicate event_id: "+e.EventID) }
-		eventIDs[e.EventID] = struct{}{}
-		if prev, ok := ops[e.OperationID]; ok { return agg, NewWorkflowError("CONFLICT", fmt.Sprintf("duplicate operation_id %s on %s and %s", e.OperationID, prev, e.EventID)) }
-		ops[e.OperationID] = e.EventID
-		k := parentKey(e.ParentEventID); children[k]++
-		if children[k] > 1 { return agg, NewWorkflowError("EVENT_FORK", "multiple events share parent "+k) }
+func ReplayWorkflow(repo string,issue int,events []WorkflowEvent)(WorkflowAggregate,error){
+	agg:=WorkflowAggregate{State:StateReady,Lifecycle:LifecycleReady,Protocol:"none",Events:append([]WorkflowEvent{},events...),UnresolvedScopeProposals:[]string{},ReviewFindings:[]string{}}
+	eventIDs:=map[string]struct{}{};ops:=map[string]string{};children:=map[string]int{};parentKey:=func(p *string)string{if p==nil{return "<root>"};return *p}
+	for _,e:=range events{if _,ok:=eventIDs[e.EventID];ok{return agg,NewWorkflowError("PROTOCOL_ERROR","duplicate event_id: "+e.EventID)};eventIDs[e.EventID]=struct{}{};if prev,ok:=ops[e.OperationID];ok{return agg,NewWorkflowError("CONFLICT",fmt.Sprintf("duplicate operation_id %s on %s and %s",e.OperationID,prev,e.EventID))};ops[e.OperationID]=e.EventID;k:=parentKey(e.ParentEventID);children[k]++;if children[k]>1{return agg,NewWorkflowError("EVENT_FORK","multiple events share parent "+k)}}
+	proposals:=map[string]struct{}{};var lastID *string;accepted:="";resumeState:=WorkflowState("");seenV2:=false
+	for i:=range events{e:=events[i];if e.Repository!=repo||e.Issue!=issue{return agg,NewWorkflowError("PROTOCOL_ERROR","workflow event repository/issue identity mismatch")};if lastID==nil{if e.ParentEventID!=nil{return agg,NewWorkflowError("EVENT_CHAIN_BROKEN","first workflow event must have null parent_event_id")}}else if e.ParentEventID==nil||*e.ParentEventID!=*lastID{return agg,NewWorkflowError("EVENT_CHAIN_BROKEN","parent_event_id does not match previous event")}
+		if e.Schema==WorkflowEventSchemaV1{if seenV2{return agg,NewWorkflowError("PROTOCOL_ERROR","v1 event cannot follow v2 migration")};if e.StateBefore!=agg.State{return agg,NewWorkflowError("EVENT_CHAIN_BROKEN",fmt.Sprintf("state_before %s does not match current state %s",e.StateBefore,agg.State))};if accepted==""{if e.EventType!=EventStart{return agg,NewWorkflowError("TRANSITION_BLOCKED","first v1 workflow event must be START")};accepted=e.ContractDigest};if e.EventType!=EventScope||scopeAction(e)!="accept"{if e.ContractDigest!=accepted{return agg,NewWorkflowError("PROTOCOL_ERROR","event contract_digest does not match accepted contract")}};if err:=validateEventPayload(e);err!=nil{return agg,err};next,err:=applyTransitionV1(agg.State,resumeState,e);if err!=nil{return agg,err};applyCommonAggregate(&agg,&resumeState,&accepted,proposals,e);agg.State=next;agg.Lifecycle=ProjectLifecycle(next);agg.Phase=ProjectPhase(next);agg.Protocol="v1"
+		}else if e.Schema==WorkflowEventSchemaV2{legacyBeforeMigration:=agg.State;if !seenV2&&i>0{if e.EventType!=EventMigrate{return agg,NewWorkflowError("MIGRATION_REQUIRED","first v2 event after v1 history must be MIGRATE")};expected:=LifecycleState(ProjectLifecycle(agg.State));if e.StateBefore!=expected||e.StateAfter!=expected{return agg,NewWorkflowError("PROTOCOL_ERROR","MIGRATE state must equal projected v2 lifecycle")};if stringData(e.Data,"from_schema")!=WorkflowEventSchemaV1||stringData(e.Data,"from_state")!=string(legacyBeforeMigration){return agg,NewWorkflowError("PROTOCOL_ERROR","MIGRATE must identify the v1 source state")};agg.State=expected;if p:=stringData(e.Data,"phase");p!=""{agg.Phase=p}else{agg.Phase=ProjectPhase(legacyBeforeMigration)};seenV2=true;agg.Protocol="v2"}else{if !seenV2&&i==0&&e.EventType==EventMigrate{return agg,NewWorkflowError("PROTOCOL_ERROR","MIGRATE requires existing v1 history")};seenV2=true;agg.Protocol="v2";if e.StateBefore!=agg.State{return agg,NewWorkflowError("EVENT_CHAIN_BROKEN",fmt.Sprintf("state_before %s does not match current state %s",e.StateBefore,agg.State))}};if accepted==""{accepted=e.ContractDigest};if e.EventType!=EventScope||scopeAction(e)!="accept"{if e.ContractDigest!=accepted{return agg,NewWorkflowError("PROTOCOL_ERROR","event contract_digest does not match accepted contract")}};if err:=validateEventPayload(e);err!=nil{return agg,err};next,err:=applyTransitionV2(agg.State,e);if err!=nil{return agg,err};applyCommonAggregate(&agg,&resumeState,&accepted,proposals,e);applyV2Aggregate(&agg,e);agg.State=next;agg.Lifecycle=ProjectLifecycle(next)
+		}else{return agg,NewWorkflowError("UNSUPPORTED_SCHEMA","unsupported workflow event schema")}
+		if e.Git!=nil{g:=*e.Git;agg.LatestGit=&g};copyE:=e;agg.LastEvent=&copyE;id:=e.EventID;lastID=&id
 	}
-	proposals := map[string]struct{}{}
-	var lastID *string
-	accepted := ""
-	resumeState := WorkflowState("")
-	seenV2 := false
-	for i := range events {
-		e := events[i]
-		if e.Repository != repo || e.Issue != issue { return agg, NewWorkflowError("PROTOCOL_ERROR", "workflow event repository/issue identity mismatch") }
-		if lastID == nil {
-			if e.ParentEventID != nil { return agg, NewWorkflowError("EVENT_CHAIN_BROKEN", "first workflow event must have null parent_event_id") }
-		} else if e.ParentEventID == nil || *e.ParentEventID != *lastID {
-			return agg, NewWorkflowError("EVENT_CHAIN_BROKEN", "parent_event_id does not match previous event")
-		}
-		if e.Schema == WorkflowEventSchemaV1 {
-			if seenV2 { return agg, NewWorkflowError("PROTOCOL_ERROR", "v1 event cannot follow v2 migration") }
-			if e.StateBefore != agg.State { return agg, NewWorkflowError("EVENT_CHAIN_BROKEN", fmt.Sprintf("state_before %s does not match current state %s", e.StateBefore, agg.State)) }
-			if accepted == "" {
-				if e.EventType != EventStart { return agg, NewWorkflowError("TRANSITION_BLOCKED", "first v1 workflow event must be START") }
-				accepted = e.ContractDigest
-			}
-			if e.EventType != EventScope || scopeAction(e) != "accept" { if e.ContractDigest != accepted { return agg, NewWorkflowError("PROTOCOL_ERROR", "event contract_digest does not match accepted contract") } }
-			if err := validateEventPayload(e); err != nil { return agg, err }
-			next, err := applyTransitionV1(agg.State, resumeState, e); if err != nil { return agg, err }
-			applyCommonAggregate(&agg, &resumeState, &accepted, proposals, e)
-			agg.State = next; agg.Lifecycle = ProjectLifecycle(next); agg.Phase = ProjectPhase(next); agg.Protocol = "v1"
-		} else if e.Schema == WorkflowEventSchemaV2 {
-			legacyBeforeMigration := agg.State
-			if !seenV2 && i > 0 {
-				if e.EventType != EventMigrate { return agg, NewWorkflowError("MIGRATION_REQUIRED", "first v2 event after v1 history must be MIGRATE") }
-				expected := LifecycleState(ProjectLifecycle(agg.State))
-				if e.StateBefore != expected || e.StateAfter != expected { return agg, NewWorkflowError("PROTOCOL_ERROR", "MIGRATE state must equal projected v2 lifecycle") }
-				if stringData(e.Data, "from_schema") != WorkflowEventSchemaV1 || stringData(e.Data, "from_state") != string(legacyBeforeMigration) { return agg, NewWorkflowError("PROTOCOL_ERROR", "MIGRATE must identify the v1 source state") }
-				agg.State = expected
-				if p := stringData(e.Data, "phase"); p != "" { agg.Phase = p } else { agg.Phase = ProjectPhase(legacyBeforeMigration) }
-				seenV2 = true; agg.Protocol = "v2"
-			} else {
-				if !seenV2 && i == 0 && e.EventType == EventMigrate { return agg, NewWorkflowError("PROTOCOL_ERROR", "MIGRATE requires existing v1 history") }
-				seenV2 = true; agg.Protocol = "v2"
-				if e.StateBefore != agg.State { return agg, NewWorkflowError("EVENT_CHAIN_BROKEN", fmt.Sprintf("state_before %s does not match current state %s", e.StateBefore, agg.State)) }
-			}
-			if accepted == "" { accepted = e.ContractDigest }
-			if e.EventType != EventScope || scopeAction(e) != "accept" { if e.ContractDigest != accepted { return agg, NewWorkflowError("PROTOCOL_ERROR", "event contract_digest does not match accepted contract") } }
-			if err := validateEventPayload(e); err != nil { return agg, err }
-			next, err := applyTransitionV2(agg.State, e); if err != nil { return agg, err }
-			applyCommonAggregate(&agg, &resumeState, &accepted, proposals, e)
-			applyV2Aggregate(&agg, e)
-			agg.State = next; agg.Lifecycle = ProjectLifecycle(next)
-		} else { return agg, NewWorkflowError("UNSUPPORTED_SCHEMA", "unsupported workflow event schema") }
-		if e.Git != nil { g := *e.Git; agg.LatestGit = &g }
-		copyE := e; agg.LastEvent = &copyE
-		id := e.EventID; lastID = &id
-	}
-	agg.AcceptedContractDigest = accepted
-	for id := range proposals { agg.UnresolvedScopeProposals = append(agg.UnresolvedScopeProposals, id) }
-	sort.Strings(agg.UnresolvedScopeProposals)
-	return agg, nil
+	agg.AcceptedContractDigest=accepted;for id:=range proposals{agg.UnresolvedScopeProposals=append(agg.UnresolvedScopeProposals,id)};sort.Strings(agg.UnresolvedScopeProposals);return agg,nil
 }
 
-func applyCommonAggregate(agg *WorkflowAggregate, resumeState *WorkflowState, accepted *string, proposals map[string]struct{}, e WorkflowEvent) {
-	if e.EventType == EventBlocked {
-		*resumeState = e.StateBefore; agg.BlockReason = stringData(e.Data, "reason"); agg.ResumeState = *resumeState
-	}
-	if e.EventType == EventResume && e.StateBefore == StateBlocked { agg.BlockReason = ""; agg.ResumeState = ""; *resumeState = "" }
-	if e.EventType == EventScope {
-		switch scopeAction(e) {
-		case "propose": proposals[e.EventID] = struct{}{}
-		case "reject": if id := stringData(e.Data, "proposal_event_id"); id != "" { delete(proposals, id) }
-		case "accept":
-			if d := stringData(e.Data, "new_contract_digest"); d != "" { *accepted = d }
-			if id := stringData(e.Data, "proposal_event_id"); id != "" { delete(proposals, id) }
-		}
-	}
-}
+func applyCommonAggregate(agg *WorkflowAggregate,resumeState *WorkflowState,accepted *string,proposals map[string]struct{},e WorkflowEvent){if e.EventType==EventBlocked{*resumeState=e.StateBefore;agg.BlockReason=stringData(e.Data,"reason");agg.ResumeState=*resumeState};if e.EventType==EventResume&&e.StateBefore==StateBlocked{agg.BlockReason="";agg.ResumeState="";*resumeState=""};if e.EventType==EventScope{switch scopeAction(e){case"propose":proposals[e.EventID]=struct{}{};case"reject":if id:=stringData(e.Data,"proposal_event_id");id!=""{delete(proposals,id)};case"accept":if d:=stringData(e.Data,"new_contract_digest");d!=""{*accepted=d};if id:=stringData(e.Data,"proposal_event_id");id!=""{delete(proposals,id)}}}}
+func applyV2Aggregate(agg *WorkflowAggregate,e WorkflowEvent){switch e.EventType{
+	case EventWait:agg.WaitingReason=stringData(e.Data,"reason")
+	case EventRecheck:if boolData(e.Data,"resolved"){agg.WaitingReason=""}
+	case EventDefer:agg.DeferredReason=stringData(e.Data,"reason")
+	case EventResume:if e.StateBefore==StateDeferred{agg.DeferredReason=""};if agg.Phase==""{agg.Phase="IMPLEMENTATION"}
+	case EventReview:findings:=stringSliceData(e.Data,"findings");if len(findings)>0{agg.ReviewStatus,agg.ReviewFindings="findings",findings}else{agg.ReviewStatus,agg.ReviewFindings="passed",[]string{}};if e.Git!=nil{agg.ReviewHead=e.Git.Head}else{agg.ReviewHead=""};agg.Phase="REVIEW"
+	case EventFix:agg.ReviewStatus="pending";agg.ReviewHead="";agg.Phase="FIX"
+	case EventStart:agg.Phase="IMPLEMENTATION"
+	case EventReopen:agg.Phase="IMPLEMENTATION";agg.ReviewStatus="";agg.ReviewHead="";agg.ReviewFindings=[]string{};agg.PortableHandoff=nil;agg.WaitingReason="";agg.DeferredReason="";agg.BlockReason="";agg.ResumeState=""
+	case EventComplete,EventCancel:agg.Phase=""
+	case EventHandoff:if boolData(e.Data,"portable"){agg.PortableHandoff=&PortableHandoff{EventID:e.EventID,Remote:stringData(e.Data,"remote"),Branch:stringData(e.Data,"branch"),Head:stringData(e.Data,"head")}}
+}}
 
-func applyV2Aggregate(agg *WorkflowAggregate, e WorkflowEvent) {
-	switch e.EventType {
-	case EventWait:
-		agg.WaitingReason = stringData(e.Data, "reason")
-	case EventRecheck:
-		if boolData(e.Data, "resolved") { agg.WaitingReason = "" }
-	case EventDefer:
-		agg.DeferredReason = stringData(e.Data, "reason")
-	case EventResume:
-		if e.StateBefore == StateDeferred { agg.DeferredReason = "" }
-		if agg.Phase == "" { agg.Phase = "IMPLEMENTATION" }
-	case EventReview:
-		findings := stringSliceData(e.Data, "findings")
-		if len(findings) > 0 { agg.ReviewStatus, agg.ReviewFindings = "findings", findings } else { agg.ReviewStatus, agg.ReviewFindings = "passed", []string{} }
-		agg.Phase = "REVIEW"
-	case EventFix:
-		agg.ReviewStatus = "pending"; agg.Phase = "FIX"
-	case EventStart, EventReopen:
-		agg.Phase = "IMPLEMENTATION"
-	case EventComplete, EventCancel:
-		agg.Phase = ""
-	case EventHandoff:
-		if boolData(e.Data, "portable") {
-			agg.PortableHandoff = &PortableHandoff{EventID: e.EventID, Remote: stringData(e.Data, "remote"), Branch: stringData(e.Data, "branch"), Head: stringData(e.Data, "head")}
-		}
-	}
-}
-
-func applyTransitionV1(state, blockedResume WorkflowState, e WorkflowEvent) (WorkflowState, error) {
-	neutral := func() (WorkflowState, error) { if e.StateAfter != state { return "", NewWorkflowError("TRANSITION_BLOCKED", string(e.EventType)+" must be state-neutral") }; return state, nil }
-	switch e.EventType {
-	case EventStart:
-		if state != StateReady || e.StateAfter != StateInProgress { return "", NewWorkflowError("TRANSITION_BLOCKED", "START requires READY -> IN_PROGRESS") }; return StateInProgress, nil
-	case EventCheckpoint, EventHandoff, EventScope:
-		if state == StateReady || state == StateDone { return "", NewWorkflowError("TRANSITION_BLOCKED", string(e.EventType)+" is not allowed in "+string(state)) }; return neutral()
-	case EventBlocked:
-		if state != StateInProgress && state != StateReview && state != StateFix { return "", NewWorkflowError("TRANSITION_BLOCKED", "BLOCKED is not allowed from "+string(state)) }
-		if e.StateAfter != StateBlocked { return "", NewWorkflowError("TRANSITION_BLOCKED", "BLOCKED must transition to BLOCKED") }; return StateBlocked, nil
-	case EventResume:
-		if state == StateBlocked { if blockedResume == "" || e.StateAfter != blockedResume { return "", NewWorkflowError("TRANSITION_BLOCKED", "RESUME must restore BLOCKED resume_state") }; return blockedResume, nil }
-		if state != StateInProgress && state != StateReview && state != StateFix { return "", NewWorkflowError("TRANSITION_BLOCKED", "RESUME is not allowed from "+string(state)) }; return neutral()
-	case EventReview:
-		if (state != StateInProgress && state != StateFix) || e.StateAfter != StateReview { return "", NewWorkflowError("TRANSITION_BLOCKED", "REVIEW requires IN_PROGRESS/FIX -> REVIEW") }; return StateReview, nil
-	case EventFix:
-		if state != StateReview || e.StateAfter != StateFix { return "", NewWorkflowError("TRANSITION_BLOCKED", "FIX requires REVIEW -> FIX") }; return StateFix, nil
-	case EventFinal:
-		if (state != StateInProgress && state != StateReview && state != StateFix) || e.StateAfter != StateDone { return "", NewWorkflowError("TRANSITION_BLOCKED", "FINAL requires active state -> DONE") }; return StateDone, nil
-	}
-	return "", NewWorkflowError("PROTOCOL_ERROR", "unsupported v1 workflow event")
-}
-
-func applyTransitionV2(state WorkflowState, e WorkflowEvent) (WorkflowState, error) {
-	neutral := func() (WorkflowState, error) { if e.StateAfter != state { return "", NewWorkflowError("TRANSITION_BLOCKED", string(e.EventType)+" must be state-neutral") }; return state, nil }
-	switch e.EventType {
-	case EventMigrate:
-		return neutral()
-	case EventStart:
-		if state != StateReady || e.StateAfter != StateInProgress { return "", NewWorkflowError("TRANSITION_BLOCKED", "START requires READY -> IN_PROGRESS") }; return StateInProgress, nil
-	case EventResume:
-		if state == StatePaused || state == StateDeferred || state == StateBlocked { if e.StateAfter != StateInProgress { return "", NewWorkflowError("TRANSITION_BLOCKED", "RESUME must transition to IN_PROGRESS") }; return StateInProgress, nil }
-		if state == StateInProgress { return neutral() }
-		return "", NewWorkflowError("TRANSITION_BLOCKED", "RESUME is not allowed from "+string(state))
-	case EventPause:
-		if state != StateInProgress || e.StateAfter != StatePaused { return "", NewWorkflowError("TRANSITION_BLOCKED", "PAUSE requires IN_PROGRESS -> PAUSED") }; return StatePaused, nil
-	case EventWait:
-		if state != StateInProgress || e.StateAfter != StateWaiting { return "", NewWorkflowError("TRANSITION_BLOCKED", "WAIT requires IN_PROGRESS -> WAITING") }; return StateWaiting, nil
-	case EventRecheck:
-		if state != StateWaiting { return "", NewWorkflowError("TRANSITION_BLOCKED", "RECHECK requires WAITING") }
-		if boolData(e.Data, "resolved") { if e.StateAfter != StateInProgress { return "", NewWorkflowError("TRANSITION_BLOCKED", "resolved RECHECK must transition to IN_PROGRESS") }; return StateInProgress, nil }
-		return neutral()
-	case EventDefer:
-		if state != StateInProgress || e.StateAfter != StateDeferred { return "", NewWorkflowError("TRANSITION_BLOCKED", "DEFER requires IN_PROGRESS -> DEFERRED") }; return StateDeferred, nil
-	case EventCheckpoint, EventHandoff, EventScope:
-		if state == StateReady || state == StateCompleted || state == StateCancelled { return "", NewWorkflowError("TRANSITION_BLOCKED", string(e.EventType)+" is not allowed in "+string(state)) }; return neutral()
-	case EventBlocked:
-		if state != StateInProgress && state != StateWaiting && state != StatePaused { return "", NewWorkflowError("TRANSITION_BLOCKED", "BLOCKED is not allowed from "+string(state)) }
-		if e.StateAfter != StateBlocked { return "", NewWorkflowError("TRANSITION_BLOCKED", "BLOCKED must transition to BLOCKED") }; return StateBlocked, nil
-	case EventReview, EventFix:
-		if state != StateInProgress { return "", NewWorkflowError("TRANSITION_BLOCKED", string(e.EventType)+" requires IN_PROGRESS") }; return neutral()
-	case EventComplete:
-		if state != StateInProgress || e.StateAfter != StateCompleted { return "", NewWorkflowError("TRANSITION_BLOCKED", "COMPLETE requires IN_PROGRESS -> COMPLETED") }; return StateCompleted, nil
-	case EventCancel:
-		if state == StateCompleted || state == StateCancelled { return "", NewWorkflowError("TRANSITION_BLOCKED", "CANCEL requires non-terminal state") }
-		if e.StateAfter != StateCancelled { return "", NewWorkflowError("TRANSITION_BLOCKED", "CANCEL must transition to CANCELLED") }; return StateCancelled, nil
-	case EventReopen:
-		if state != StateCompleted && state != StateCancelled { return "", NewWorkflowError("TRANSITION_BLOCKED", "REOPEN requires terminal state") }
-		if e.StateAfter != StateReady { return "", NewWorkflowError("TRANSITION_BLOCKED", "REOPEN must transition to READY") }; return StateReady, nil
-	}
-	return "", NewWorkflowError("PROTOCOL_ERROR", "unsupported v2 workflow event")
-}
-
-func scopeAction(e WorkflowEvent) string { return strings.ToLower(stringData(e.Data, "action")) }
-func stringData(m map[string]any, k string) string { v, ok := m[k]; if !ok { return "" }; s, _ := v.(string); return strings.TrimSpace(s) }
-func boolData(m map[string]any, k string) bool { v, _ := m[k].(bool); return v }
-func stringSliceData(m map[string]any, k string) []string {
-	v := m[k]; out := []string{}
-	switch xs := v.(type) {
-	case []any: for _, x := range xs { if s, ok := x.(string); ok && strings.TrimSpace(s) != "" { out = append(out, strings.TrimSpace(s)) } }
-	case []string: for _, s := range xs { if strings.TrimSpace(s) != "" { out = append(out, strings.TrimSpace(s)) } }
-	}
-	return out
-}
-
-func validateEventPayload(e WorkflowEvent) error {
-	requireString := func(k string) error { if stringData(e.Data, k) == "" { return NewWorkflowError("PROTOCOL_ERROR", string(e.EventType)+" requires data."+k) }; return nil }
-	requireArray := func(k string) error {
-		v, ok := e.Data[k]; if !ok { return NewWorkflowError("PROTOCOL_ERROR", string(e.EventType)+" requires data."+k) }
-		switch v.(type) { case []any, []string: return nil }
-		return NewWorkflowError("PROTOCOL_ERROR", string(e.EventType)+" data."+k+" must be an array")
-	}
-	if e.Schema == WorkflowEventSchemaV1 {
-		switch e.EventType {
-		case EventCheckpoint: if err := requireString("summary"); err != nil { return err }; if err := requireString("next"); err != nil { return err }; return requireArray("validation")
-		case EventHandoff: if err := requireString("summary"); err != nil { return err }; if err := requireString("next"); err != nil { return err }; return requireArray("warnings")
-		case EventFinal: if err := requireString("summary"); err != nil { return err }; if err := requireArray("validation"); err != nil { return err }; if _, ok := e.Data["delivery"]; !ok { return NewWorkflowError("PROTOCOL_ERROR", "FINAL requires data.delivery") }
-		case EventScope: if scopeAction(e) == "propose" { if err := requireString("summary"); err != nil { return err }; return requireString("reason") }
-		}
-		return nil
-	}
-	switch e.EventType {
-	case EventMigrate:
-		if err := requireString("from_schema"); err != nil { return err }; return requireString("from_state")
-	case EventCheckpoint:
-		if err := requireString("summary"); err != nil { return err }; if err := requireString("next"); err != nil { return err }; return requireArray("validation")
-	case EventHandoff:
-		if err := requireString("summary"); err != nil { return err }; if err := requireString("next"); err != nil { return err }; if err := requireArray("warnings"); err != nil { return err }
-		if boolData(e.Data, "portable") { for _, k := range []string{"remote", "branch", "head"} { if err := requireString(k); err != nil { return err } } }
-	case EventPause:
-		return requireString("reason")
-	case EventWait:
-		if err := requireString("reason"); err != nil { return err }; return requireString("next")
-	case EventDefer:
-		if err := requireString("reason"); err != nil { return err }; return requireString("next")
-	case EventBlocked:
-		if err := requireString("reason"); err != nil { return err }; return requireString("next")
-	case EventScope:
-		if scopeAction(e) == "propose" { if err := requireString("summary"); err != nil { return err }; return requireString("reason") }
-	case EventReview:
-		return requireArray("findings")
-	case EventFix:
-		return requireString("summary")
-	case EventComplete:
-		if err := requireString("summary"); err != nil { return err }; if err := requireArray("validation"); err != nil { return err }; if _, ok := e.Data["delivery"]; !ok { return NewWorkflowError("PROTOCOL_ERROR", "COMPLETE requires data.delivery") }
-	case EventCancel, EventReopen:
-		return requireString("reason")
-	}
-	return nil
-}
+func applyTransitionV1(state,blockedResume WorkflowState,e WorkflowEvent)(WorkflowState,error){neutral:=func()(WorkflowState,error){if e.StateAfter!=state{return "",NewWorkflowError("TRANSITION_BLOCKED",string(e.EventType)+" must be state-neutral")};return state,nil};switch e.EventType{case EventStart:if state!=StateReady||e.StateAfter!=StateInProgress{return "",NewWorkflowError("TRANSITION_BLOCKED","START requires READY -> IN_PROGRESS")};return StateInProgress,nil;case EventCheckpoint,EventHandoff,EventScope:if state==StateReady||state==StateDone{return "",NewWorkflowError("TRANSITION_BLOCKED",string(e.EventType)+" is not allowed in "+string(state))};return neutral();case EventBlocked:if state!=StateInProgress&&state!=StateReview&&state!=StateFix{return "",NewWorkflowError("TRANSITION_BLOCKED","BLOCKED is not allowed from "+string(state))};if e.StateAfter!=StateBlocked{return "",NewWorkflowError("TRANSITION_BLOCKED","BLOCKED must transition to BLOCKED")};return StateBlocked,nil;case EventResume:if state==StateBlocked{if blockedResume==""||e.StateAfter!=blockedResume{return "",NewWorkflowError("TRANSITION_BLOCKED","RESUME must restore BLOCKED resume_state")};return blockedResume,nil};if state!=StateInProgress&&state!=StateReview&&state!=StateFix{return "",NewWorkflowError("TRANSITION_BLOCKED","RESUME is not allowed from "+string(state))};return neutral();case EventReview:if(state!=StateInProgress&&state!=StateFix)||e.StateAfter!=StateReview{return "",NewWorkflowError("TRANSITION_BLOCKED","REVIEW requires IN_PROGRESS/FIX -> REVIEW")};return StateReview,nil;case EventFix:if state!=StateReview||e.StateAfter!=StateFix{return "",NewWorkflowError("TRANSITION_BLOCKED","FIX requires REVIEW -> FIX")};return StateFix,nil;case EventFinal:if(state!=StateInProgress&&state!=StateReview&&state!=StateFix)||e.StateAfter!=StateDone{return "",NewWorkflowError("TRANSITION_BLOCKED","FINAL requires active state -> DONE")};return StateDone,nil};return "",NewWorkflowError("PROTOCOL_ERROR","unsupported v1 workflow event")}
+func applyTransitionV2(state WorkflowState,e WorkflowEvent)(WorkflowState,error){neutral:=func()(WorkflowState,error){if e.StateAfter!=state{return "",NewWorkflowError("TRANSITION_BLOCKED",string(e.EventType)+" must be state-neutral")};return state,nil};switch e.EventType{case EventMigrate:return neutral();case EventStart:if state!=StateReady||e.StateAfter!=StateInProgress{return "",NewWorkflowError("TRANSITION_BLOCKED","START requires READY -> IN_PROGRESS")};return StateInProgress,nil;case EventResume:if state==StatePaused||state==StateDeferred||state==StateBlocked{if e.StateAfter!=StateInProgress{return "",NewWorkflowError("TRANSITION_BLOCKED","RESUME must transition to IN_PROGRESS")};return StateInProgress,nil};if state==StateInProgress{return neutral()};return "",NewWorkflowError("TRANSITION_BLOCKED","RESUME is not allowed from "+string(state));case EventPause:if state!=StateInProgress||e.StateAfter!=StatePaused{return "",NewWorkflowError("TRANSITION_BLOCKED","PAUSE requires IN_PROGRESS -> PAUSED")};return StatePaused,nil;case EventWait:if state!=StateInProgress||e.StateAfter!=StateWaiting{return "",NewWorkflowError("TRANSITION_BLOCKED","WAIT requires IN_PROGRESS -> WAITING")};return StateWaiting,nil;case EventRecheck:if state!=StateWaiting{return "",NewWorkflowError("TRANSITION_BLOCKED","RECHECK requires WAITING")};if boolData(e.Data,"resolved"){if e.StateAfter!=StateInProgress{return "",NewWorkflowError("TRANSITION_BLOCKED","resolved RECHECK must transition to IN_PROGRESS")};return StateInProgress,nil};return neutral();case EventDefer:if state!=StateInProgress||e.StateAfter!=StateDeferred{return "",NewWorkflowError("TRANSITION_BLOCKED","DEFER requires IN_PROGRESS -> DEFERRED")};return StateDeferred,nil;case EventCheckpoint,EventHandoff,EventScope:if state==StateReady||state==StateCompleted||state==StateCancelled{return "",NewWorkflowError("TRANSITION_BLOCKED",string(e.EventType)+" is not allowed in "+string(state))};return neutral();case EventBlocked:if state!=StateInProgress&&state!=StateWaiting&&state!=StatePaused{return "",NewWorkflowError("TRANSITION_BLOCKED","BLOCKED is not allowed from "+string(state))};if e.StateAfter!=StateBlocked{return "",NewWorkflowError("TRANSITION_BLOCKED","BLOCKED must transition to BLOCKED")};return StateBlocked,nil;case EventReview,EventFix:if state!=StateInProgress{return "",NewWorkflowError("TRANSITION_BLOCKED",string(e.EventType)+" requires IN_PROGRESS")};return neutral();case EventComplete:if state!=StateInProgress||e.StateAfter!=StateCompleted{return "",NewWorkflowError("TRANSITION_BLOCKED","COMPLETE requires IN_PROGRESS -> COMPLETED")};return StateCompleted,nil;case EventCancel:if state==StateCompleted||state==StateCancelled{return "",NewWorkflowError("TRANSITION_BLOCKED","CANCEL requires non-terminal state")};if e.StateAfter!=StateCancelled{return "",NewWorkflowError("TRANSITION_BLOCKED","CANCEL must transition to CANCELLED")};return StateCancelled,nil;case EventReopen:if state!=StateCompleted&&state!=StateCancelled{return "",NewWorkflowError("TRANSITION_BLOCKED","REOPEN requires terminal state")};if e.StateAfter!=StateReady{return "",NewWorkflowError("TRANSITION_BLOCKED","REOPEN must transition to READY")};return StateReady,nil};return "",NewWorkflowError("PROTOCOL_ERROR","unsupported v2 workflow event")}
+func scopeAction(e WorkflowEvent)string{return strings.ToLower(stringData(e.Data,"action"))};func stringData(m map[string]any,k string)string{v,ok:=m[k];if !ok{return ""};s,_:=v.(string);return strings.TrimSpace(s)};func boolData(m map[string]any,k string)bool{v,_:=m[k].(bool);return v}
+func stringSliceData(m map[string]any,k string)[]string{v:=m[k];out:=[]string{};switch xs:=v.(type){case[]any:for _,x:=range xs{if s,ok:=x.(string);ok&&strings.TrimSpace(s)!=""{out=append(out,strings.TrimSpace(s))}};case[]string:for _,s:=range xs{if strings.TrimSpace(s)!=""{out=append(out,strings.TrimSpace(s))}}};return out}
+func validateEventPayload(e WorkflowEvent)error{requireString:=func(k string)error{if stringData(e.Data,k)==""{return NewWorkflowError("PROTOCOL_ERROR",string(e.EventType)+" requires data."+k)};return nil};requireArray:=func(k string)error{v,ok:=e.Data[k];if !ok{return NewWorkflowError("PROTOCOL_ERROR",string(e.EventType)+" requires data."+k)};switch v.(type){case[]any,[]string:return nil};return NewWorkflowError("PROTOCOL_ERROR",string(e.EventType)+" data."+k+" must be an array")};if e.Schema==WorkflowEventSchemaV1{switch e.EventType{case EventCheckpoint:if err:=requireString("summary");err!=nil{return err};if err:=requireString("next");err!=nil{return err};return requireArray("validation");case EventHandoff:if err:=requireString("summary");err!=nil{return err};if err:=requireString("next");err!=nil{return err};return requireArray("warnings");case EventFinal:if err:=requireString("summary");err!=nil{return err};if err:=requireArray("validation");err!=nil{return err};if _,ok:=e.Data["delivery"];!ok{return NewWorkflowError("PROTOCOL_ERROR","FINAL requires data.delivery")};case EventScope:if scopeAction(e)=="propose"{if err:=requireString("summary");err!=nil{return err};return requireString("reason")}};return nil};switch e.EventType{case EventMigrate:if err:=requireString("from_schema");err!=nil{return err};return requireString("from_state");case EventCheckpoint:if err:=requireString("summary");err!=nil{return err};if err:=requireString("next");err!=nil{return err};return requireArray("validation");case EventHandoff:if err:=requireString("summary");err!=nil{return err};if err:=requireString("next");err!=nil{return err};if err:=requireArray("warnings");err!=nil{return err};if boolData(e.Data,"portable"){for _,k:=range[]string{"remote","branch","head"}{if err:=requireString(k);err!=nil{return err}}};case EventPause:return requireString("reason");case EventWait:if err:=requireString("reason");err!=nil{return err};return requireString("next");case EventDefer:if err:=requireString("reason");err!=nil{return err};return requireString("next");case EventBlocked:if err:=requireString("reason");err!=nil{return err};return requireString("next");case EventScope:if scopeAction(e)=="propose"{if err:=requireString("summary");err!=nil{return err};return requireString("reason")};case EventReview:return requireArray("findings");case EventFix:return requireString("summary");case EventComplete:if err:=requireString("summary");err!=nil{return err};if err:=requireArray("validation");err!=nil{return err};if _,ok:=e.Data["delivery"];!ok{return NewWorkflowError("PROTOCOL_ERROR","COMPLETE requires data.delivery")};case EventCancel,EventReopen:return requireString("reason")};return nil}
