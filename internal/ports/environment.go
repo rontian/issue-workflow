@@ -13,6 +13,14 @@ type GitPort interface {
 	Snapshot(context.Context, string) (domain.GitSnapshot, error)
 }
 
+type PortableGitPort interface {
+	GitPort
+	RemoteBranchHead(context.Context, string, string, string) (string, error)
+	FetchRemote(context.Context, string, string) error
+	CommitExists(context.Context, string, string) bool
+	RestoreBranch(context.Context, string, string, string, string) error
+}
+
 type GitHubPort interface {
 	Version(context.Context) (string, error)
 	Authenticated(context.Context, string) error

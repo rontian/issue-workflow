@@ -13,38 +13,31 @@ func gitEventSnapshot(g domain.GitSnapshot) *domain.EventGitSnapshot {
 
 func logicalOperationData(t domain.WorkflowEventType, data map[string]any) map[string]any {
 	out := map[string]any{}
-	copyKey := func(k string) {
-		if v, ok := data[k]; ok {
-			out[k] = v
-		}
-	}
+	copyKey := func(k string) { if v, ok := data[k]; ok { out[k] = v } }
 	switch t {
-	case domain.EventStart, domain.EventResume, domain.EventReview, domain.EventFix:
+	case domain.EventMigrate:
+		copyKey("from_schema"); copyKey("from_state"); copyKey("phase")
+	case domain.EventStart, domain.EventResume:
 		copyKey("summary")
-		copyKey("findings")
+	case domain.EventPause, domain.EventCancel, domain.EventReopen:
+		copyKey("reason")
+	case domain.EventWait, domain.EventDefer, domain.EventBlocked:
+		copyKey("reason"); copyKey("next")
+	case domain.EventRecheck:
+		copyKey("resolved"); copyKey("reason")
 	case domain.EventCheckpoint:
-		copyKey("summary")
-		copyKey("next")
-		copyKey("validation")
+		copyKey("summary"); copyKey("next"); copyKey("validation")
 	case domain.EventHandoff:
-		copyKey("summary")
-		copyKey("next")
-		copyKey("warnings")
-	case domain.EventBlocked:
-		copyKey("reason")
-		copyKey("next")
+		copyKey("summary"); copyKey("next"); copyKey("warnings"); copyKey("portable"); copyKey("remote"); copyKey("branch"); copyKey("head")
 	case domain.EventScope:
-		copyKey("action")
+		copyKey("action"); copyKey("summary"); copyKey("reason"); copyKey("proposal_event_id"); copyKey("new_contract_digest")
+	case domain.EventReview:
+		copyKey("summary"); copyKey("findings")
+	case domain.EventFix:
 		copyKey("summary")
-		copyKey("reason")
-		copyKey("proposal_event_id")
-		copyKey("new_contract_digest")
-	case domain.EventFinal:
-		copyKey("summary")
-		copyKey("validation")
-		if d, ok := data["delivery"].(map[string]any); ok {
-			out["delivery"] = map[string]any{"pushed": d["pushed"], "pr": d["pr"]}
-		}
+	case domain.EventComplete:
+		copyKey("summary"); copyKey("validation")
+		if d, ok := data["delivery"].(map[string]any); ok { out["delivery"] = map[string]any{"pushed": d["pushed"], "pr": d["pr"]} }
 	}
 	return out
 }

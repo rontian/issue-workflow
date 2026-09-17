@@ -14,3 +14,7 @@ type WorkflowGitHubPort interface {
 	CreateIssue(context.Context, domain.RepositoryIdentity, string, string) (domain.GitHubIssueDetails, error)
 	AppendIssueComment(context.Context, domain.RepositoryIdentity, int, string) error
 }
+
+type TaskListGitHubPort interface {
+	TaskIssues(context.Context, domain.RepositoryIdentity) ([]domain.GitHubIssueDetails, error)
+}
