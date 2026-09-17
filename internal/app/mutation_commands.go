@@ -37,7 +37,7 @@ func (s *WorkflowService) mutate(ctx context.Context, command string, t domain.W
 	rr, code := s.read(ctx, command, o.WorkflowOptions)
 	if !rr.OK { return rr, code }
 	rep := rr.Data.(WorkflowReport)
-	if rep.Issue.State != "OPEN" && t != domain.EventReopen { return mutationFailFrom(command, "TRANSITION_BLOCKED", "Issue is not open", rep, rr) }
+	if rep.Issue.State != "OPEN" && t != domain.EventReopen && t != domain.EventMigrate { return mutationFailFrom(command, "GITHUB_ISSUE_CLOSED", "GitHub Issue is closed; reopen it explicitly before active workflow mutation", rep, rr) }
 	if rep.Aggregate.Protocol == "v1" && t != domain.EventMigrate { return mutationFailFrom(command, "MIGRATION_REQUIRED", "v1 workflow must be explicitly migrated before v2 mutation; run iw migrate <issue>", rep, rr) }
 	if t == domain.EventMigrate && rep.Aggregate.Protocol != "v1" { return mutationFailFrom(command, "TRANSITION_BLOCKED", "migrate requires existing v1 workflow history", rep, rr) }
 	if t != domain.EventMigrate && (t != domain.EventScope || strings.ToLower(o.ScopeAction) != "accept") && rep.ContractChanged { return mutationFailFrom(command, "CONTRACT_CHANGED", "Issue Body changed; scope accept or restore contract before mutation", rep, rr) }
