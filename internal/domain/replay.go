@@ -104,14 +104,15 @@ func applyV2Aggregate(agg *WorkflowAggregate, e WorkflowEvent) {
 		agg.DeferredReason = stringData(e.Data, "reason")
 	case EventResume:
 		if e.StateBefore == StateDeferred { agg.DeferredReason = "" }
+		if agg.Phase == "" { agg.Phase = "IMPLEMENTATION" }
 	case EventReview:
 		findings := stringSliceData(e.Data, "findings")
 		if len(findings) > 0 { agg.ReviewStatus, agg.ReviewFindings = "findings", findings } else { agg.ReviewStatus, agg.ReviewFindings = "passed", []string{} }
 		agg.Phase = "REVIEW"
 	case EventFix:
 		agg.ReviewStatus = "pending"; agg.Phase = "FIX"
-	case EventStart, EventResume, EventReopen:
-		if agg.Phase == "" || e.EventType == EventReopen { agg.Phase = "IMPLEMENTATION" }
+	case EventStart, EventReopen:
+		agg.Phase = "IMPLEMENTATION"
 	case EventComplete, EventCancel:
 		agg.Phase = ""
 	case EventHandoff:
