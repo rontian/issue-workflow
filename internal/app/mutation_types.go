@@ -17,6 +17,9 @@ type MutationOptions struct {
 	ProposalEventID string
 	Pushed          bool
 	PR              int
+	Portable        bool
+	Resolved        bool
+	Apply           bool
 }
 
 type MutationPreview struct {

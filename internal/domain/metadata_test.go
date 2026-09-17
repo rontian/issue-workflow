@@ -8,8 +8,7 @@ import (
 
 func digest(ch byte) string { return "sha256:" + strings.Repeat(string(ch), 64) }
 func eventJSON(id, parent, op, typ, before, after string, data string) string {
-	p := "null"
-	if parent != "" { p = fmt.Sprintf("%q", parent) }
+	p := "null"; if parent != "" { p = fmt.Sprintf("%q", parent) }
 	return fmt.Sprintf(`{"schema":"iw.workflow-event/v1","event_id":%q,"parent_event_id":%s,"operation_id":%q,"run_id":"r1","event_type":%q,"occurred_at":"2026-09-15T04:00:00Z","repository":"o/r","issue":7,"contract_digest":%q,"state_before":%q,"state_after":%q,"git":{"branch":"main","head":"abcdef","detached":false,"dirty":false,"changed_paths":[]},"data":%s}`, id, p, op, typ, digest('a'), before, after, data)
 }
 func comment(body string) GitHubComment { return GitHubComment{ID: 1, Body: body, CreatedAt: "2026-09-15T04:00:00Z"} }
@@ -17,18 +16,19 @@ func wrap(raw string) string { return "[X]\n\n<!-- iw:workflow-event:v1\n" + raw
 func TestParseWorkflowEventComment(t *testing.T) {
 	e, err := ParseWorkflowEventComment(comment(wrap(eventJSON("e1", "", "op1", "START", "READY", "IN_PROGRESS", `{}`))))
 	if err != nil { t.Fatal(err) }
-	if e == nil || e.EventID != "e1" || e.CommentID != 1 { t.Fatalf("bad event %#v", e) }
+	if e == nil || e.EventID != "e1" || e.CommentID != 1 || e.Schema != WorkflowEventSchemaV1 { t.Fatalf("bad event %#v", e) }
 }
 func TestParseWorkflowEventIgnoresNormalComment(t *testing.T) {
-	e, err := ParseWorkflowEventComment(comment("hello"))
-	if err != nil || e != nil { t.Fatalf("%#v %v", e, err) }
+	e, err := ParseWorkflowEventComment(comment("hello")); if err != nil || e != nil { t.Fatalf("%#v %v", e, err) }
 }
 func TestParseWorkflowEventRejectsUnknownSchema(t *testing.T) {
-	_, err := ParseWorkflowEventComment(comment("<!-- iw:workflow-event:v2\n{}\n-->"))
-	if WorkflowErrorCode(err) != "UNSUPPORTED_SCHEMA" { t.Fatalf("%v", err) }
+	_, err := ParseWorkflowEventComment(comment("<!-- iw:workflow-event:v99\n{}\n-->")); if WorkflowErrorCode(err) != "UNSUPPORTED_SCHEMA" { t.Fatalf("%v", err) }
+}
+func TestParseWorkflowEventV2Recognized(t *testing.T) {
+	raw := strings.Replace(eventJSON("e1", "", "op1", "START", "READY", "IN_PROGRESS", `{}`), WorkflowEventSchemaV1, WorkflowEventSchemaV2, 1)
+	body := "[START]\n\n<!-- iw:workflow-event:v2\n" + raw + "\n-->"
+	e, err := ParseWorkflowEventComment(comment(body)); if err != nil { t.Fatal(err) }; if e == nil || e.Schema != WorkflowEventSchemaV2 { t.Fatalf("%#v", e) }
 }
 func TestParseWorkflowEventRejectsMultipleBlocks(t *testing.T) {
-	raw := wrap(eventJSON("e1", "", "op1", "START", "READY", "IN_PROGRESS", `{}`))
-	_, err := ParseWorkflowEventComment(comment(raw + "\n" + raw))
-	if WorkflowErrorCode(err) != "PROTOCOL_ERROR" { t.Fatalf("%v", err) }
+	raw := wrap(eventJSON("e1", "", "op1", "START", "READY", "IN_PROGRESS", `{}`)); _, err := ParseWorkflowEventComment(comment(raw + "\n" + raw)); if WorkflowErrorCode(err) != "PROTOCOL_ERROR" { t.Fatalf("%v", err) }
 }

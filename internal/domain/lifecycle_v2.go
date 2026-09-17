@@ -15,29 +15,28 @@ const (
 	LifecycleCancelled     Lifecycle = "CANCELLED"
 )
 
-var LifecycleValues = []Lifecycle{
-	LifecycleNeedsAnalysis,
-	LifecycleReady,
-	LifecycleInProgress,
-	LifecyclePaused,
-	LifecycleWaiting,
-	LifecycleDeferred,
-	LifecycleBlocked,
-	LifecycleCompleted,
-	LifecycleCancelled,
-}
+var LifecycleValues = []Lifecycle{LifecycleNeedsAnalysis, LifecycleReady, LifecycleInProgress, LifecyclePaused, LifecycleWaiting, LifecycleDeferred, LifecycleBlocked, LifecycleCompleted, LifecycleCancelled}
 
-// ProjectLifecycle maps the v1 state machine into the v2 top-level lifecycle without rewriting history.
 func ProjectLifecycle(state WorkflowState) Lifecycle {
 	switch state {
+	case StateNeedsAnalysis:
+		return LifecycleNeedsAnalysis
 	case StateReady:
 		return LifecycleReady
 	case StateInProgress, StateReview, StateFix:
 		return LifecycleInProgress
+	case StatePaused:
+		return LifecyclePaused
+	case StateWaiting:
+		return LifecycleWaiting
+	case StateDeferred:
+		return LifecycleDeferred
 	case StateBlocked:
 		return LifecycleBlocked
-	case StateDone:
+	case StateCompleted, StateDone:
 		return LifecycleCompleted
+	case StateCancelled:
+		return LifecycleCancelled
 	default:
 		return LifecycleNeedsAnalysis
 	}
@@ -55,3 +54,5 @@ func ProjectPhase(state WorkflowState) string {
 		return ""
 	}
 }
+
+func LifecycleState(l Lifecycle) WorkflowState { return WorkflowState(l) }

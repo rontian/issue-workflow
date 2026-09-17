@@ -20,7 +20,9 @@ func main() {
 	workflow := &app.WorkflowService{Runner: runner, Git: git, GitHub: github}
 	project := &app.ProjectService{Runner: runner, Git: git}
 	contextService := &app.ContextService{Workflow: workflow, Project: project}
-	command := &cli.CLI{Doctor: doctor, Init: initializer, Workflow: workflow, Project: project, Context: contextService, Stdout: os.Stdout, Stderr: os.Stderr, Getwd: os.Getwd, IsTerminal: stdinIsTerminal}
+	tasks := &app.TaskService{Workflow: workflow}
+	restore := &app.RestoreService{Workflow: workflow, Git: git, Context: contextService}
+	command := &cli.CLI{Doctor: doctor, Init: initializer, Workflow: workflow, Project: project, Context: contextService, Tasks: tasks, Restore: restore, Stdout: os.Stdout, Stderr: os.Stderr, Getwd: os.Getwd, IsTerminal: stdinIsTerminal}
 	os.Exit(command.Run(context.Background(), os.Args[1:]))
 }
 

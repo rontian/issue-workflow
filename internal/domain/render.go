@@ -28,53 +28,32 @@ func RenderTaskContract(in TaskContractInput) (string, error) {
 	section := func(name string, lines []string, checkbox bool) {
 		fmt.Fprintf(&b, "## %s\n\n", name)
 		for _, x := range lines {
-			x = strings.TrimSpace(x)
-			if x == "" {
-				continue
-			}
-			if checkbox {
-				fmt.Fprintf(&b, "- [ ] %s\n", x)
-			} else {
-				fmt.Fprintf(&b, "- %s\n", x)
-			}
+			x = strings.TrimSpace(x); if x == "" { continue }
+			if checkbox { fmt.Fprintf(&b, "- [ ] %s\n", x) } else { fmt.Fprintf(&b, "- %s\n", x) }
 		}
 		b.WriteString("\n")
 	}
 	b.WriteString("## Goal\n\n" + strings.TrimSpace(in.Goal) + "\n\n")
 	section("Scope", in.Scope, false)
 	section("Out of Scope", in.OutOfScope, false)
-	if len(in.Constraints) > 0 {
-		section("Constraints", in.Constraints, false)
-	}
+	if len(in.Constraints) > 0 { section("Constraints", in.Constraints, false) }
 	section("Acceptance Criteria", in.AcceptanceCriteria, true)
-	if len(in.Validation) > 0 {
-		section("Validation", in.Validation, false)
-	}
-	if len(in.Dependencies) > 0 {
-		section("Dependencies / References", in.Dependencies, false)
-	}
+	if len(in.Validation) > 0 { section("Validation", in.Validation, false) }
+	if len(in.Dependencies) > 0 { section("Dependencies / References", in.Dependencies, false) }
 	fmt.Fprintf(&b, "<!-- iw:task-contract:v1\n%s\n-->\n", meta)
 	return b.String(), nil
 }
 
 func RenderWorkflowEvent(e WorkflowEvent) (string, error) {
-	raw, err := json.Marshal(e)
-	if err != nil {
-		return "", err
-	}
+	raw, err := json.Marshal(e); if err != nil { return "", err }
 	marker := "[" + string(e.EventType) + "]"
-	human := eventHumanSummary(e)
-	if human != "" {
-		human = "\n\n" + human
-	}
-	return fmt.Sprintf("%s%s\n\n<!-- iw:workflow-event:v1\n%s\n-->\n", marker, human, raw), nil
+	human := eventHumanSummary(e); if human != "" { human = "\n\n" + human }
+	version := "v2"
+	if e.Schema == WorkflowEventSchemaV1 { version = "v1" }
+	return fmt.Sprintf("%s%s\n\n<!-- iw:workflow-event:%s\n%s\n-->\n", marker, human, version, raw), nil
 }
 func eventHumanSummary(e WorkflowEvent) string {
-	for _, k := range []string{"summary", "reason", "next"} {
-		if s := stringData(e.Data, k); s != "" {
-			return s
-		}
-	}
+	for _, k := range []string{"summary", "reason", "next"} { if s := stringData(e.Data, k); s != "" { return s } }
 	return ""
 }
 
