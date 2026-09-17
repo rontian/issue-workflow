@@ -83,6 +83,7 @@ func (s *WorkflowService) read(ctx context.Context, command string, opts Workflo
 	if agg.Protocol=="v1" { r.Warnings=append(r.Warnings,"WORKFLOW_V1_COMPAT"); r.NextActions=append([]string{"iw migrate <issue> before the next mutation"},r.NextActions...) }
 	if agg.Lifecycle==domain.LifecycleBlocked { r.Constraints=append(r.Constraints,"workflow 当前处于 BLOCKED") }
 	if agg.ReviewStatus=="findings" || agg.ReviewStatus=="pending" { r.Warnings=append(r.Warnings,"REVIEW_UNRESOLVED") }
+	if !strings.EqualFold(issue.State,"OPEN") && agg.Lifecycle!=domain.LifecycleCompleted && agg.Lifecycle!=domain.LifecycleCancelled { r.Warnings=append(r.Warnings,"GITHUB_ISSUE_CLOSED"); r.Constraints=append(r.Constraints,"GitHub Issue 当前为 CLOSED；active workflow mutation 前必须显式 reopen GitHub Issue"); r.NextActions=append([]string{fmt.Sprintf("gh issue reopen %d",issue.Number)},r.NextActions...) }
 	return r,result.ExitOK
 }
 
