@@ -52,6 +52,7 @@ func (s *WorkflowService) mutate(ctx context.Context, command string, t domain.W
 		remoteHead, err := pg.RemoteBranchHead(ctx, rep.CurrentGit.RepositoryRoot, remote, rep.CurrentGit.Branch)
 		if err != nil || remoteHead != rep.CurrentGit.Head { return mutationFailFrom(command, "STALE_GIT_STATE", "portable handoff requires exact HEAD to be published on remote branch", rep, rr) }
 	}
+	if err := prepareWaitConditions(t, rep, &o); err != nil { return mutationFailFrom(command, "INVALID_INVOCATION", err.Error(), rep, rr) }
 	data, err := buildEventData(t, o, rep)
 	if err != nil { return mutationFailFrom(command, "INVALID_INVOCATION", err.Error(), rep, rr) }
 	fingerprint := domain.OperationFingerprint(t, logicalOperationData(t, data)); data["_operation_fingerprint"] = fingerprint
