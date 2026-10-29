@@ -84,6 +84,7 @@ func (s *WorkflowService) read(ctx context.Context, command string, opts Workflo
 	if contractChanged { r.Warnings=append(r.Warnings,"CONTRACT_CHANGED"); r.Constraints=append(r.Constraints,"Issue Body digest 与已接受 contract 不一致；workflow mutation 必须等待 scope reconciliation") }
 	if drift.Changed { r.Warnings=append(r.Warnings,"STALE_GIT_STATE") }
 	if len(agg.UnresolvedScopeProposals)>0 { r.Warnings=append(r.Warnings,"SCOPE_UNRESOLVED"); r.Constraints=append(r.Constraints,"存在 unresolved scope proposal") }
+	if (agg.Lifecycle==domain.LifecycleCompleted||agg.Lifecycle==domain.LifecycleCancelled)&&strings.EqualFold(issue.State,"OPEN"){r.Warnings=append(r.Warnings,"GITHUB_ISSUE_OPEN_AFTER_WORKFLOW_TERMINAL");r.NextActions=append([]string{fmt.Sprintf("iw issue close %d",issue.Number)},r.NextActions...)}
 	if agg.Protocol=="v1" { r.Warnings=append(r.Warnings,"WORKFLOW_V1_COMPAT"); r.NextActions=append([]string{"iw migrate <issue> before the next mutation"},r.NextActions...) }
 	if agg.Lifecycle==domain.LifecycleBlocked { r.Constraints=append(r.Constraints,"workflow 当前处于 BLOCKED") }
 	if agg.ReviewStatus=="findings" || agg.ReviewStatus=="pending" { r.Warnings=append(r.Warnings,"REVIEW_UNRESOLVED") }
