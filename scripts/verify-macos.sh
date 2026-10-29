@@ -123,6 +123,7 @@ run_live_step() {
       if jq -e '.ok == true and .schema == "iw.command-result/v2"' "$log" >/dev/null 2>&1; then
         record PASS "$name" 0; return 0
       fi
+      rc=1
     else
       rc=$?
     fi
@@ -201,7 +202,7 @@ if [ -n "$RESUME_ISSUE" ]; then
   ISSUE="$RESUME_ISSUE"
   # Verify native Issue identity and a matching Task Contract before touching it.
   if ! run resume-inspect gh issue view "$ISSUE" --repo "$TARGET_REPO" --json title,state,body; then exit 1; fi
-  gh issue view "$ISSUE" --repo "$TARGET_REPO" --json title,state,body > "$REPORT_DIR/live-reuse-issue.json" || { record FAIL reuse-inspect 4; exit 1; }
+  cp "$REPORT_DIR/live-resume-inspect.log" "$REPORT_DIR/live-reuse-issue.json" || exit 1
   issue_title="$(jq -r '.title // empty' "$REPORT_DIR/live-reuse-issue.json")"
   case "$issue_title" in
     '[iw-blackbox] iw-blackbox-'*) TEST_BRANCH="${issue_title#'[iw-blackbox] '}" ;;
@@ -216,7 +217,7 @@ if [ -n "$RESUME_ISSUE" ]; then
   # This recovery entry point intentionally supports only early START/CHECKPOINT
   # failures. Later states require a dedicated stage-aware continuation.
   if ! run reuse-events gh api "repos/$TARGET_REPO/issues/$ISSUE/comments?per_page=100"; then exit 1; fi
-  gh api "repos/$TARGET_REPO/issues/$ISSUE/comments?per_page=100" > "$REPORT_DIR/live-reuse-comments.json" || { record FAIL reuse-events 4; exit 1; }
+  cp "$REPORT_DIR/live-reuse-events.log" "$REPORT_DIR/live-reuse-comments.json" || exit 1
   if ! jq -e 'length <= 2 and all(.[]; (.body | contains("\"event_type\":\"START\"") or contains("\"event_type\":\"CHECKPOINT\"")))' "$REPORT_DIR/live-reuse-comments.json" >/dev/null; then
     echo "Existing Issue is past checkpoint; refusing to replay earlier stages" >&2; record FAIL reuse-stage 2; exit 1
   fi
