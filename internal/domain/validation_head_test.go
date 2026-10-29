@@ -10,6 +10,7 @@ func TestCurrentHeadRequiresExplicitHeadBoundValidationEvidence(t *testing.T){
         {"current","pass",false},
         {"current","fail",true},
         {"current","manual_required",true},
+        {"current","not_applicable",true},
     }
     for _,tt:=range tests {
         evidence:=map[string]ValidationRecord{"v1":{ID:"v1",Status:tt.status,ObservedHead:tt.head}}
