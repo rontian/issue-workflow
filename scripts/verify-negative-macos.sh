@@ -123,6 +123,10 @@ positive scope-status status "$ISSUE"
 if jq -e '.data.contract_changed == false' "$OUT/scope-status.json" >/dev/null; then
   record PASS scope-digest-reconciled 0 '' '' '' ''
 else record FAIL scope-digest-reconciled 1 '' '' '' ''; exit 1; fi
+# Scope acceptance invalidates prior review. Establish a fresh passing review
+# at the original HEAD so the next HEAD change exercises stale-review gating.
+positive review-after-scope review "$ISSUE" --summary 'Synthetic review after contract reconciliation' \
+  --operation-id "$BRANCH-review-after-scope"
 
 printf 'untracked synthetic content\n' > "$WORK/iw-negative-dirty.txt"
 negative dirty-worktree "$ISSUE" STALE_GIT_STATE handoff "$ISSUE" \
