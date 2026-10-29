@@ -36,6 +36,6 @@ type options struct{
 	Pushed bool
 	PR int
 	Portable,Resolved,Apply bool
-	ScopeItems,OutOfScope,Acceptance,Constraints,Validation,Dependencies,Warnings,Findings stringList
+	ScopeItems,OutOfScope,Acceptance,Constraints,Validation,Dependencies,Warnings,Findings,Conditions stringList
 	ScopeAction string
 }
