@@ -146,8 +146,11 @@ rm "$WORK/iw-negative-dirty.txt" || exit 1
 if ! git -C "$WORK" -c user.name=iw-negative -c user.email=iw-negative@users.noreply.github.com -c commit.gpgsign=false commit --allow-empty -m "[iw-negative] HEAD drift" > "$OUT/head-drift.log" 2>&1; then
   record FAIL commit-head-drift 1 '' '' '' ''; exit 1
 fi
-negative git-drift "$ISSUE" STALE_GIT_STATE complete "$ISSUE" \
-  --summary 'refuse stale Git HEAD' --operation-id "$BRANCH-git"
+# A previously passed review at the old HEAD wins over the later general
+# Git-drift completion check. The unpublished handoff below independently
+# proves the STALE_GIT_STATE remote/HEAD safety gate.
+negative review-precedes-git-drift "$ISSUE" REVIEW_REQUIRED complete "$ISSUE" \
+  --summary 'refuse old review and changed Git HEAD' --operation-id "$BRANCH-git"
 negative unpublished-handoff "$ISSUE" STALE_GIT_STATE handoff "$ISSUE" \
   --summary 'refuse unpublished HEAD' --next 'no event' --portable --operation-id "$BRANCH-unpublished"
 if ! git -C "$WORK" push origin "$BRANCH" > "$OUT/head-push.log" 2>&1; then
@@ -189,6 +192,12 @@ negative unknown-schema "$POISON" UNSUPPORTED_SCHEMA start "$POISON" \
   --operation-id "$BRANCH-poison-start"
 negative unknown-schema-read "$POISON" UNSUPPORTED_SCHEMA status "$POISON"
 
+# The restore conflict deliberately moved the sandbox branch. Reconcile the
+# new HEAD in the event log before the native Issue close, whose independent
+# guard also requires no persisted-vs-local Git drift.
+positive checkpoint-after-restore-conflict checkpoint "$ISSUE" \
+  --summary 'Record moved synthetic HEAD after verified restore refusal' \
+  --next 'cancel isolated test segment' --operation-id "$BRANCH-final-cp"
 positive cancel cancel "$ISSUE" --reason 'Synthetic negative acceptance completed' \
   --operation-id "$BRANCH-cancel"
 positive close issue close "$ISSUE"
