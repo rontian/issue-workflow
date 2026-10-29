@@ -35,6 +35,8 @@ func logicalOperationData(t domain.WorkflowEventType, data map[string]any) map[s
 		copyKey("summary"); copyKey("findings")
 	case domain.EventFix:
 		copyKey("summary")
+	case domain.EventTaskComplete:
+		copyKey("task_id"); copyKey("summary"); copyKey("validation")
 	case domain.EventComplete:
 		copyKey("summary"); copyKey("validation")
 		if d, ok := data["delivery"].(map[string]any); ok { out["delivery"] = map[string]any{"pushed": d["pushed"], "pr": d["pr"]} }
