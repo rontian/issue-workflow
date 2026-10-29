@@ -54,8 +54,19 @@ local_check auth gh auth status
 local_check repo-identity bash -c 'gh repo view "$1" --json nameWithOwner --jq .nameWithOwner | grep -Fx "$1"' _ "$REPO"
 BRANCH="iw-negative-$STAMP-$$"
 WORK="$OUT/checkout"
-if ! gh repo clone "$REPO" "$WORK" -- --depth 1 --config http.version=HTTP/1.1 > "$OUT/clone.log" 2>&1 ||
-   ! git -C "$WORK" switch -c "$BRANCH" > "$OUT/branch.log" 2>&1 ||
+# Network transport can fail before any writes. Retry only the sandbox clone,
+# and remove only this invocation's partially created checkout.
+CLONED=0
+for attempt in 1 2 3; do
+  if gh repo clone "$REPO" "$WORK" -- --depth 1 --config http.version=HTTP/1.1 > "$OUT/clone-$attempt.log" 2>&1; then
+    CLONED=1
+    break
+  fi
+  if [ -e "$WORK" ] || [ -L "$WORK" ]; then rm -rf "$WORK" || exit 1; fi
+  if [ "$attempt" -lt 3 ]; then sleep "$attempt"; fi
+done
+if [ "$CLONED" -ne 1 ]; then record FAIL sandbox-clone 1 '' '' '' ''; exit 1; fi
+if ! git -C "$WORK" switch -c "$BRANCH" > "$OUT/branch.log" 2>&1 ||
    ! git -C "$WORK" -c user.name=iw-negative -c user.email=iw-negative@users.noreply.github.com -c commit.gpgsign=false commit --allow-empty -m "[iw-negative] $BRANCH" > "$OUT/commit.log" 2>&1 ||
    ! git -C "$WORK" push -u origin "$BRANCH" > "$OUT/push.log" 2>&1; then
   record FAIL sandbox-setup 1 '' '' '' ''; exit 1
