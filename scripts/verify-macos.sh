@@ -225,7 +225,13 @@ if [ -n "$RESUME_ISSUE" ]; then
   if [ "$FAILURES" -ne 0 ]; then exit 1; fi
   run fetch-a git -C "$CHECKOUT_A" fetch --no-tags origin "+refs/heads/$TEST_BRANCH:refs/remotes/origin/$TEST_BRANCH"
   if [ "$FAILURES" -ne 0 ]; then exit 1; fi
+  # Shallow single-branch clones do not recognize the explicitly fetched branch
+  # for --track until it is registered in this clone's remote fetch config.
+  run track-a git -C "$CHECKOUT_A" remote set-branches --add origin "$TEST_BRANCH"
+  if [ "$FAILURES" -ne 0 ]; then exit 1; fi
   run branch-a git -C "$CHECKOUT_A" switch --track -c "$TEST_BRANCH" "origin/$TEST_BRANCH"
+  if [ "$FAILURES" -ne 0 ]; then exit 1; fi
+  run head-a bash -c 'actual="$(git -C "$1" rev-parse HEAD)" && expected="$(git -C "$1" rev-parse "refs/remotes/origin/$2")" && [ "$actual" = "$expected" ]' _ "$CHECKOUT_A" "$TEST_BRANCH"
   if [ "$FAILURES" -ne 0 ]; then exit 1; fi
   PUBLISHED_BRANCH="$TEST_BRANCH"
   OP="$TEST_BRANCH"
