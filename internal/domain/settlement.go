@@ -25,34 +25,8 @@ type SettlementProjection struct{
     Items []SettlementItem `json:"items"`
 }
 
-var settlementIDRE=regexp.MustCompile(`^(task:T[0-9]{2,}|validation:v[1-9][0-9]*|acceptance:a[1-9][0-9]*)package domain
-
-import (
-    "fmt"
-    "regexp"
-    "strings"
-)
-
-// Settlement is orthogonal to Issue lifecycle. FactStatus is never rewritten
-// as pass to represent owner acceptance of residual manual risk.
-type SettlementItem struct {
-    ID string `json:"id"`
-    Kind string `json:"kind"`
-    FactStatus string `json:"fact_status"`
-    Disposition string `json:"disposition"`
-    Target string `json:"target"`
-    Reason string `json:"reason,omitempty"`
-    Head string `json:"head,omitempty"`
-    DecidedBy string `json:"decided_by,omitempty"`
-    EventID string `json:"event_id,omitempty"`
-}
-
-type SettlementProjection struct{
-    Schema string `json:"schema"`
-    Items []SettlementItem `json:"items"`
-}
-
-)
+var settlementIDRE = regexp.MustCompile(`^[a-z][a-z0-9._:-]*$`)
+var settlementTaskIDRE = regexp.MustCompile(`^task:T[0-9]{2,}$`)
 var settlementKinds=map[string]bool{
     "implementation":true,"automated_validation":true,"manual_validation":true,
     "real_resource_validation":true,"review":true,"git":true,
@@ -68,7 +42,8 @@ var settlementDispositions=map[string]bool{
 }
 
 func ValidateSettlementItem(item SettlementItem, ownerConfirmed bool)error{
-    if !settlementIDRE.MatchString(item.ID){return fmt.Errorf("invalid settlement item ID %q",item.ID)}
+    if !settlementIDRE.MatchString(item.ID) && !settlementTaskIDRE.MatchString(item.ID) {return fmt.Errorf("invalid settlement item ID %q",item.ID)}
+    if strings.HasPrefix(item.ID,"task:") && !settlementTaskIDRE.MatchString(item.ID) {return fmt.Errorf("invalid task settlement reference %q",item.ID)}
     if !settlementKinds[item.Kind]{return fmt.Errorf("invalid settlement kind %q",item.Kind)}
     if !settlementFacts[item.FactStatus]{return fmt.Errorf("invalid settlement fact status %q",item.FactStatus)}
     if !settlementDispositions[item.Disposition]{return fmt.Errorf("invalid settlement disposition %q",item.Disposition)}
