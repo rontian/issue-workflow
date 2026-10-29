@@ -74,7 +74,7 @@ Fact statuses are separate from dispositions. Dispositions are `none`, `accepted
 
 `complete` needs all planned implementation tasks complete, current passing validation or allowed owner-settled manual risk, no unresolved review, clean current Git state, and no unsettled completion items. Explicit `--pushed` is delivery evidence, never independent proof of a published HEAD.
 
-`complete` may be invoked directly from legacy WAITING only with final validation/settlement evidence. Named external wait conditions must all be resolved via `recheck`. `CANCELLED` and `COMPLETED` are different; Issue close/open remains a separately audited GitHub fact, not a hidden side effect of the event.
+`complete` may be invoked directly from legacy WAITING only with final validation/settlement evidence. Named external wait conditions must all be resolved via `recheck`. `CANCELLED` and `COMPLETED` are different; Issue close/open remains a separately audited GitHub fact, not a hidden side effect of the event. After `iw complete N` or `iw cancel N`, call `iw issue close N` explicitly; Core checks terminal state and confirms the native Issue is CLOSED. To resume an already closed Issue, call `iw reopen N` first (workflow Event) and then `iw issue reopen N` (native GitHub state). Both Issue state actions support `--dry-run`, and retries are idempotent.
 
 `handoff --portable` requires a clean exact published HEAD and persists branch/remote/HEAD; `restore` defaults to a plan, and `restore --apply` verifies before fetching/restoring.
 
