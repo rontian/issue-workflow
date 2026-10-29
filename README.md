@@ -67,6 +67,7 @@ iw start|resume|pause|wait|recheck|defer <issue>
 iw checkpoint|handoff|restore <issue>
 iw block|review|fix|complete|cancel|reopen <issue>
 iw scope propose|accept|reject <issue>
+iw issue close|reopen <issue> [--dry-run]
 iw task status <issue> | iw task complete <issue> --task-id T01 --summary S
 iw settle <issue> --item-id task:T02 --kind implementation --fact pending --disposition deferred --target defer --reason R
 
@@ -107,7 +108,7 @@ This runs tests/race/vet/build/install and protocol smoke locally; **no GitHub w
 IW_TEST_CONFIRM=YES bash scripts/verify-macos.sh --live
 ```
 
-This uses only newly created `[iw-blackbox]` Issues and a new test branch in `rontian/pi-test` and leaves them for investigation by default; **never runs on `issue-workflow` or `.pi`**. Append `--cleanup` to close/delete only artifacts created by that invocation on full success. Review report logs before sharing; do not post credentials, private paths or private issue contents. See also `scripts/verify-macos.sh --help`.
+This uses only newly created `[iw-blackbox]` Issues and a new test branch in `rontian/pi-test`. It verifies native Issue close/reopen/cancel and leaves a closed audit Issue plus test branch for investigation by default; **never runs on `issue-workflow` or `.pi`**. Append `--cleanup` to delete only the test branch created by that invocation on full success (the closed test Issue history is intentionally retained). Review report logs before sharing; do not post credentials, private paths or private issue contents. See also `scripts/verify-macos.sh --help`.
 
 
 ## Public / local boundary
