@@ -73,3 +73,19 @@ func TestNormalizeMachineInProgressIncludesTaskAndSettlement(t *testing.T) {
 		if !found { t.Fatalf("%s omitted from allowed actions: %v",want,r.Machine.AllowedActions) }
 	}
 }
+
+
+func TestMachineActionsUseConcreteIWSubcommands(t *testing.T) {
+	for _,state:=range []string{"READY","IN_PROGRESS","PAUSED","WAITING","DEFERRED","BLOCKED","COMPLETED","CANCELLED"} {
+		t.Run(state,func(t *testing.T){
+			r:=Success("status",nil)
+			r.State,r.Lifecycle=state,state
+			NormalizeMachine(&r)
+			for _,action:=range r.Machine.AllowedActions {
+				if action=="scope"||action=="gh issue reopen"{
+					t.Fatalf("ambiguous or bypass command advertised: %q in %v",action,r.Machine.AllowedActions)
+				}
+			}
+		})
+	}
+}
