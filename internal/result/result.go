@@ -98,7 +98,7 @@ func NormalizeMachine(r *CommandResult) {
 		case "MIGRATION_REQUIRED":
 			addAction("migrate", "migrate", "MIGRATION_REQUIRED")
 		case "CONTRACT_CHANGED":
-			addAction("scope_reconcile", "scope", "CONTRACT_CHANGED")
+			addAction("scope_reconcile", "scope accept", "CONTRACT_CHANGED")
 		case "VALIDATION_FAILED":
 			addAction("validate", "checkpoint", "VALIDATION_FAILED")
 		case "REVIEW_REQUIRED":
@@ -114,7 +114,7 @@ func NormalizeMachine(r *CommandResult) {
 		case "ADAPTER_UNMANAGED":
 			addAction("inspect_adapter_target", "adapter status", "ADAPTER_UNMANAGED")
 		case "GITHUB_ISSUE_CLOSED":
-			addAction("reopen_github_issue", "gh issue reopen", "GITHUB_ISSUE_CLOSED")
+			addAction("reopen_github_issue", "issue reopen", "GITHUB_ISSUE_CLOSED")
 		}
 	}
 	for _, w := range r.Warnings {
@@ -123,7 +123,7 @@ func NormalizeMachine(r *CommandResult) {
 			addAction("migrate", "migrate", "WORKFLOW_V1_COMPAT")
 		case "CONTRACT_CHANGED":
 			addConstraint("CONTRACT_CHANGED", w)
-			addAction("scope_reconcile", "scope", "CONTRACT_CHANGED")
+			addAction("scope_reconcile", "scope accept", "CONTRACT_CHANGED")
 		case "SCOPE_UNRESOLVED":
 			addConstraint("SCOPE_UNRESOLVED", w)
 		case "STALE_GIT_STATE":
@@ -132,7 +132,7 @@ func NormalizeMachine(r *CommandResult) {
 			addAction("close_github_issue","issue close","GITHUB_ISSUE_OPEN_AFTER_WORKFLOW_TERMINAL")
 		case "GITHUB_ISSUE_CLOSED":
 			addConstraint("GITHUB_ISSUE_CLOSED", "GitHub Issue is closed; reopen it explicitly before active workflow mutation")
-			addAction("reopen_github_issue", "gh issue reopen", "GITHUB_ISSUE_CLOSED")
+			addAction("reopen_github_issue", "issue reopen", "GITHUB_ISSUE_CLOSED")
 		}
 	}
 	if strings.EqualFold(r.State, "BLOCKED") || strings.EqualFold(r.Lifecycle, "BLOCKED") {
@@ -153,7 +153,7 @@ func NormalizeMachine(r *CommandResult) {
 	migrationRequired := warnSeen["WORKFLOW_V1_COMPAT"] || (r.Error != nil && r.Error.Code == "MIGRATION_REQUIRED")
 	contractChanged := warnSeen["CONTRACT_CHANGED"] || (r.Error != nil && r.Error.Code == "CONTRACT_CHANGED")
 	if issueClosed {
-		m.AllowedActions = []string{"context", "status"}
+		m.AllowedActions = []string{"context", "status", "issue reopen"}
 		if migrationRequired {
 			m.AllowedActions = append(m.AllowedActions, "migrate")
 		}
@@ -161,7 +161,7 @@ func NormalizeMachine(r *CommandResult) {
 		m.AllowedActions = []string{"context", "status", "migrate"}
 	} else if contractChanged {
 		// A changed Issue Body is not an implicit Task Contract acceptance.
-		m.AllowedActions = []string{"context", "status", "scope"}
+		m.AllowedActions = []string{"context", "status", "scope accept"}
 	}
 	if len(m.NextActions) == 0 {
 		switch canonicalLifecycle(r.Lifecycle, r.State) {
@@ -218,7 +218,7 @@ func allowedActions(lifecycle, state string) []string {
 	case "READY":
 		return []string{"start", "cancel"}
 	case "IN_PROGRESS":
-		return []string{"resume", "checkpoint", "handoff", "task complete", "settle", "pause", "wait", "defer", "block", "scope", "review", "fix", "complete", "cancel"}
+		return []string{"resume", "checkpoint", "handoff", "task complete", "settle", "pause", "wait", "defer", "block", "scope propose", "scope accept", "scope reject", "review", "fix", "complete", "cancel"}
 	case "PAUSED":
 		return []string{"resume", "block", "cancel"}
 	case "WAITING":
