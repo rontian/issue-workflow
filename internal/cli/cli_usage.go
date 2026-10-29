@@ -17,6 +17,9 @@ Environment / protocol:
 Project / task read model:
   iw project status
   iw tasks
+  iw task status <issue>
+  iw task complete <issue> --task-id T01 --summary S
+  iw settle <issue> --item-id ID --kind KIND --fact STATUS --disposition DECISION --target complete|defer --reason R [--owner-confirmed]
   iw next
   iw context <issue>
   iw status <issue>
@@ -30,7 +33,7 @@ Lifecycle:
   iw resume <issue>
   iw pause <issue> --reason R
   iw wait <issue> --reason R --next N
-  iw recheck <issue> [--resolved] [--reason R]
+  iw recheck <issue> [--condition ID=waiting[:note]] [--condition ID=resolved:evidence] [--reason R] [--resolved for legacy waits]
   iw defer <issue> --reason R --next N
   iw checkpoint <issue> --summary S --next N [--validation ID=status[:summary]]
   iw handoff <issue> --summary S --next N [--warning W] [--portable]
@@ -44,7 +47,9 @@ Lifecycle:
   iw complete <issue> --summary S [--validation ID=status[:summary]] [--pushed] [--pr N]
   iw final <issue> --summary S ...        # compatibility alias for complete
   iw cancel <issue> --reason R
-  iw reopen <issue> --reason R
+  iw reopen <issue>
+  iw issue close <issue> [--dry-run]
+  iw issue reopen <issue> [--dry-run] --reason R
 
 Adapter lifecycle:
   iw adapter list

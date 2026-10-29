@@ -42,3 +42,96 @@ func TestAdapterRejectsIncompatibleManifest(t *testing.T){
 func TestAdapterManifestRejectsTraversal(t *testing.T){
 	src,reg:=adapterFixture(t,true);raw,err:=os.ReadFile(filepath.Join(src,"iw-adapter.json"));if err!=nil{t.Fatal(err)};var m AdapterManifest;if json.Unmarshal(raw,&m)!=nil{t.Fatal("decode")};m.Assets[0].Source="../secret";raw,_=json.Marshal(m);if os.WriteFile(filepath.Join(src,"iw-adapter.json"),raw,0644)!=nil{t.Fatal("write")};s:=&AdapterService{Source:localAdapterSource{src},Registry:reg,Getenv:func(string)string{return t.TempDir()}};r,c:=s.Install(context.Background(),"test",false);if c!=result.ExitProtocol||r.Error==nil||r.Error.Code!="ADAPTER_MANIFEST_INVALID"{t.Fatalf("%d %#v",c,r)}
 }
+
+
+func TestAdapterUpdateDoesNotDeleteUnrelatedBackupSibling(t *testing.T) {
+	src,reg:=adapterFixture(t,true)
+	root:=t.TempDir()
+	s:=&AdapterService{Source:localAdapterSource{src},Registry:reg,Getenv:func(string)string{return root}}
+	if r,c:=s.Install(context.Background(),"test",false);c!=0||!r.OK{
+		t.Fatalf("initial install: %d %#v",c,r)
+	}
+	target:=filepath.Join(root,"skills","workflow")
+	// This directory is NOT a managed adapter asset, even though its name
+	// matches the old implementation's fixed backup path.
+	unrelated:=target+".iw-backup"
+	if err:=os.MkdirAll(unrelated,0755);err!=nil{t.Fatal(err)}
+	sentinel:=filepath.Join(unrelated,"user-owned.txt")
+	if err:=os.WriteFile(sentinel,[]byte("must be preserved"),0644);err!=nil{t.Fatal(err)}
+	if err:=os.WriteFile(filepath.Join(src,"skill","SKILL.md"),[]byte("updated\n"),0644);err!=nil{t.Fatal(err)}
+	if r,c:=s.Update(context.Background(),"test",false);c!=0||!r.OK{
+		t.Fatalf("adapter update: %d %#v",c,r)
+	}
+	if got,err:=os.ReadFile(sentinel);err!=nil||string(got)!="must be preserved"{
+		t.Fatalf("unrelated user-owned sibling was changed: %q %v",got,err)
+	}
+	if got,err:=os.ReadFile(filepath.Join(target,"SKILL.md"));err!=nil||string(got)!="updated\n"{
+		t.Fatalf("updated managed content missing: %q %v",got,err)
+	}
+}
+
+
+func TestAdapterRejectsLocallyModifiedManagedTree(t *testing.T) {
+	for _,kind:=range []string{"added","edited","deleted","missing-inventory"} {
+		t.Run(kind,func(t *testing.T){
+			src,reg:=adapterFixture(t,true)
+			root:=t.TempDir()
+			s:=&AdapterService{Source:localAdapterSource{src},Registry:reg,Getenv:func(string)string{return root}}
+			if r,c:=s.Install(context.Background(),"test",false);c!=0||!r.OK{t.Fatalf("install: %d %#v",c,r)}
+			target:=filepath.Join(root,"skills","workflow")
+			skill:=filepath.Join(target,"SKILL.md")
+			switch kind {
+			case "added":
+				if err:=os.WriteFile(filepath.Join(target,"user-note.txt"),[]byte("local data"),0644);err!=nil{t.Fatal(err)}
+			case "edited":
+				if err:=os.WriteFile(skill,[]byte("local edits"),0644);err!=nil{t.Fatal(err)}
+			case "deleted":
+				if err:=os.Remove(skill);err!=nil{t.Fatal(err)}
+			case "missing-inventory":
+				marker,ok:=readManagedMarker(target);if !ok{t.Fatal("marker missing")}
+				marker.ManagedFiles=nil
+				raw,err:=json.Marshal(marker);if err!=nil{t.Fatal(err)}
+				if err:=os.WriteFile(filepath.Join(target,".iw-adapter-install.json"),raw,0644);err!=nil{t.Fatal(err)}
+			}
+			for _,operation:=range []struct {
+				name string
+				run func(context.Context,string,bool)(result.CommandResult,int)
+			}{
+				{"update",s.Update},
+				{"remove",s.Remove},
+			}{
+				r,c:=operation.run(context.Background(),"test",false)
+				if c!=result.ExitConflict||r.Error==nil||r.Error.Code!="ADAPTER_UNMANAGED"{
+					t.Fatalf("%s must refuse locally modified/legacy target: %d %#v",operation.name,c,r)
+				}
+			}
+			if _,err:=os.Stat(target);err!=nil{t.Fatalf("refused operation removed target: %v",err)}
+			if kind=="added" {
+				if got,err:=os.ReadFile(filepath.Join(target,"user-note.txt"));err!=nil||string(got)!="local data"{
+					t.Fatalf("locally added content changed: %q %v",got,err)
+				}
+			}
+		})
+	}
+}
+
+
+func TestAdapterDoctorExposesModifiedManagedContent(t *testing.T) {
+	src,reg:=adapterFixture(t,true)
+	root:=t.TempDir()
+	s:=&AdapterService{Source:localAdapterSource{src},Registry:reg,Getenv:func(string)string{return root}}
+	if r,c:=s.Install(context.Background(),"test",false);c!=0||!r.OK{t.Fatalf("install: %d %#v",c,r)}
+	target:=filepath.Join(root,"skills","workflow")
+	if err:=os.WriteFile(filepath.Join(target,"user-extra.txt"),[]byte("keep"),0644);err!=nil{t.Fatal(err)}
+	r,c:=s.Status(context.Background(),"test")
+	if c!=result.ExitOK||!r.OK{t.Fatalf("status: %d %#v",c,r)}
+	status:=r.Data.(AdapterStatus)
+	if !status.Installed||status.Managed{t.Fatalf("modified managed tree misreported: %+v",status)}
+	found:=false
+	for _,warning:=range r.Warnings{if warning=="ADAPTER_UNMANAGED"{found=true}}
+	if !found{t.Fatalf("status warnings do not expose drift: %v",r.Warnings)}
+	r,c=s.Doctor(context.Background(),"test")
+	if c!=result.ExitConflict||r.OK||r.Error==nil||r.Error.Code!="ADAPTER_UNMANAGED"{
+		t.Fatalf("doctor must fail closed: %d %#v",c,r)
+	}
+}

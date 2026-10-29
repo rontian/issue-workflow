@@ -75,7 +75,7 @@ read Git/GitHub facts
 → locally replay candidate event
 → dry-run OR append remote event
 → verify/refresh outcome
-→ return iw.command-result/v1
+→ return iw.command-result/v2
 ```
 
 Unknown remote write outcomes are recovered using `operation_id` and operation fingerprint before retrying.
@@ -113,7 +113,7 @@ Credentials remain entirely under the user's local Git/SSH/credential-helper and
 
 ## 7. Host Adapter lifecycle
 
-The future generic Adapter control plane belongs to `iw` itself. Canonical command direction:
+The implemented generic Adapter control plane belongs to `iw` itself. Canonical command direction:
 
 ```text
 iw adapter list
@@ -133,14 +133,14 @@ iw init --adapter pi
 
 The existing `--host` flag is reserved for GitHub host override and must not be repurposed for Agent selection.
 
-Adapter lifecycle is intentionally not implemented during the initial repository split. Core behavior is completed and validated first.
+Adapter lifecycle is now implemented in Core v2. The Codex Adapter manifest remains v1 and is intentionally incompatible until its separate upgrade after Core acceptance.
 
 ## 8. Compatibility rule
 
-Current bootstrap preserves the existing v1 wire contracts:
+Core v2 writes `iw.command-result/v2` and `iw.workflow-event/v2` and exposes `iw.context/v1`, `iw.capabilities/v1`, and `iw.machine-semantics/v1`. The legacy `iw.task-contract/v1` and v1 event reader remain compatible; workflow event migration is explicit (`iw migrate`). Unknown schemas fail closed.
 
-- `iw.command-result/v1`
-- `iw.task-contract/v1`
-- `iw.workflow-event/v1`
+**Do not confuse implemented commands with Core sign-off.** The candidate branch now implements Txx task guards, structured per-item settlement and named external-wait reconciliation; these features have selected positive real-GitHub evidence at `e8d0b80`, but the full negative, migration, privacy, adapter and release matrix remains open. See `docs/core-v2-acceptance-matrix.md`, `docs/pi-issue-parity-audit.md` and Issue #3.
 
-Incompatible semantic or required-field changes require a new schema version. Unknown schemas fail explicitly; readers do not guess.
+### Machine action permissions under reconciliation
+
+`iw.machine-semantics/v1` `allowed_actions` is a protocol projection, not a grant to bypass preflight guards. To avoid advertising impossible v2 writes, the current Core limits machine actions to `context`, `status` and `migrate` for pre-migration v1 histories. After Task Contract digest drift, only `context`, `status` and `scope` reconciliation are advertised. A closed active GitHub Issue remains read-only until explicit native state reconciliation. The Core still validates every concrete mutation at execution time.

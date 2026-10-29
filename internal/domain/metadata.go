@@ -75,7 +75,7 @@ func validEventTypeForSchema(t WorkflowEventType, schema string) bool {
 		return false
 	}
 	switch t {
-	case EventMigrate, EventStart, EventResume, EventPause, EventWait, EventRecheck, EventDefer, EventCheckpoint, EventHandoff, EventBlocked, EventScope, EventReview, EventFix, EventComplete, EventCancel, EventReopen:
+	case EventMigrate, EventStart, EventResume, EventPause, EventWait, EventRecheck, EventDefer, EventCheckpoint, EventHandoff, EventBlocked, EventScope, EventReview, EventFix, EventComplete, EventCancel, EventReopen, EventTaskComplete, EventSettle:
 		return true
 	}
 	return false

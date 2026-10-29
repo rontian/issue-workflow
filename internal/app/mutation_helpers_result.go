@@ -27,12 +27,14 @@ func nextAfterMutation(t domain.WorkflowEventType, lifecycle string) []string {
 	case domain.EventRecheck: if lifecycle == string(domain.LifecycleWaiting) { return []string{"condition still pending; recheck later"} }; return []string{"continue authorized work"}
 	case domain.EventDefer: return []string{"resume the later segment with iw resume <issue> when authorized"}
 	case domain.EventCheckpoint: return []string{"continue work, review, or hand off"}
+	case domain.EventTaskComplete: return []string{"continue with next planned Txx; check iw task status"}
+	case domain.EventSettle: return []string{"recheck context and complete/defer gates after settlement"}
 	case domain.EventHandoff: return []string{"next session: iw context <issue> then iw resume <issue> if lifecycle requires it"}
 	case domain.EventBlocked: return []string{"resolve blocker then iw resume <issue>"}
 	case domain.EventReview: return []string{"iw fix <issue> if findings exist; otherwise complete when gates pass"}
 	case domain.EventFix: return []string{"apply fixes then iw review <issue>"}
-	case domain.EventComplete: return []string{"workflow COMPLETED; GitHub Issue closure remains explicit"}
-	case domain.EventCancel: return []string{"workflow CANCELLED; reopen explicitly if work resumes"}
+	case domain.EventComplete: return []string{"complete recorded; use iw issue close <issue> to explicitly close the native GitHub Issue"}
+	case domain.EventCancel: return []string{"cancel recorded; use iw issue close <issue> to close as not planned"}
 	case domain.EventReopen: return []string{"workflow returned to READY; use iw start <issue>"}
 	default: return []string{}
 	}

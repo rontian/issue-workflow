@@ -26,6 +26,8 @@ type AgentContext struct {
 	Phase       string                    `json:"phase,omitempty"`
 	Protocol    string                    `json:"protocol_source"`
 	Workflow    domain.WorkflowAggregate  `json:"workflow"`
+	TaskProgress domain.TaskProgress `json:"task_progress"`
+	Settlement domain.SettlementProjection `json:"settlement"`
 	Git         domain.GitSnapshot        `json:"git"`
 	GitDrift    domain.GitDrift           `json:"git_drift"`
 	Validation  ContextValidation         `json:"validation"`
@@ -43,6 +45,6 @@ func (s *ContextService) Run(ctx context.Context, o WorkflowOptions) (result.Com
 	project:=ProjectReport{Schema:ProjectSchema,Config:ProjectConfig{Schema:ProjectSchema},Docs:[]ProjectDocStatus{},Environment:[]ProjectExecutableStatus{}}
 	if s.Project!=nil { if pr,err:=s.Project.Read(ctx,o.CWD);err==nil { project=pr } else { wr.Warnings=append(wr.Warnings,"PROJECT_CONFIG_INVALID");wr.Constraints=append(wr.Constraints,err.Error()) } }
 	req:=domain.ValidationRequirements(rep.Contract); records:=domain.ValidationRecordsFromEvents(rep.Aggregate.Events); ids:=make([]string,0,len(records));for id:=range records{ids=append(ids,id)};sort.Strings(ids);evidence:=make([]domain.ValidationRecord,0,len(ids));for _,id:=range ids{evidence=append(evidence,records[id])}
-	data:=AgentContext{Schema:ContextSchema,Project:project,Repository:rep.Repository,Issue:rep.Issue,Task:rep.Contract,Lifecycle:rep.Lifecycle,Phase:rep.Phase,Protocol:rep.ProtocolSource,Workflow:rep.Aggregate,Git:rep.CurrentGit,GitDrift:rep.GitDrift,Validation:ContextValidation{Requirements:req,Evidence:evidence,Missing:domain.MissingValidationsAtHead(req,records,rep.CurrentGit.Head)},Recovery:rep.Recovery,Constraints:append([]string(nil),wr.Constraints...),NextActions:append([]string(nil),wr.NextActions...)}
+	data:=AgentContext{Schema:ContextSchema,Project:project,Repository:rep.Repository,Issue:rep.Issue,Task:rep.Contract,Lifecycle:rep.Lifecycle,Phase:rep.Phase,Protocol:rep.ProtocolSource,Workflow:rep.Aggregate,TaskProgress:rep.TaskProgress,Settlement:rep.Settlement,Git:rep.CurrentGit,GitDrift:rep.GitDrift,Validation:ContextValidation{Requirements:req,Evidence:evidence,Missing:domain.MissingValidationsAtHead(req,records,rep.CurrentGit.Head)},Recovery:rep.Recovery,Constraints:append([]string(nil),wr.Constraints...),NextActions:append([]string(nil),wr.NextActions...)}
 	r:=result.Success("context",data);r.Repository,r.Issue,r.State,r.Lifecycle=wr.Repository,wr.Issue,wr.State,string(rep.Lifecycle);r.Warnings=append([]string(nil),wr.Warnings...);r.Constraints=append([]string(nil),wr.Constraints...);r.NextActions=append([]string(nil),wr.NextActions...);return r,result.ExitOK
 }

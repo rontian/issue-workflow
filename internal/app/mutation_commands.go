@@ -22,6 +22,8 @@ func (s *WorkflowService) Handoff(ctx context.Context, o MutationOptions) (resul
 func (s *WorkflowService) Block(ctx context.Context, o MutationOptions) (result.CommandResult, int) { return s.mutate(ctx, "block", domain.EventBlocked, o) }
 func (s *WorkflowService) Review(ctx context.Context, o MutationOptions) (result.CommandResult, int) { return s.mutate(ctx, "review", domain.EventReview, o) }
 func (s *WorkflowService) Fix(ctx context.Context, o MutationOptions) (result.CommandResult, int) { return s.mutate(ctx, "fix", domain.EventFix, o) }
+func (s *WorkflowService) TaskComplete(ctx context.Context, o MutationOptions) (result.CommandResult, int) { return s.mutate(ctx, "task complete", domain.EventTaskComplete, o) }
+func (s *WorkflowService) Settle(ctx context.Context, o MutationOptions) (result.CommandResult, int) { return s.mutate(ctx, "settle", domain.EventSettle, o) }
 func (s *WorkflowService) Complete(ctx context.Context, o MutationOptions) (result.CommandResult, int) { return s.mutate(ctx, "complete", domain.EventComplete, o) }
 func (s *WorkflowService) Final(ctx context.Context, o MutationOptions) (result.CommandResult, int) {
 	r, code := s.mutate(ctx, "final", domain.EventComplete, o)
@@ -52,6 +54,7 @@ func (s *WorkflowService) mutate(ctx context.Context, command string, t domain.W
 		remoteHead, err := pg.RemoteBranchHead(ctx, rep.CurrentGit.RepositoryRoot, remote, rep.CurrentGit.Branch)
 		if err != nil || remoteHead != rep.CurrentGit.Head { return mutationFailFrom(command, "STALE_GIT_STATE", "portable handoff requires exact HEAD to be published on remote branch", rep, rr) }
 	}
+	if err := prepareWaitConditions(t, rep, &o); err != nil { return mutationFailFrom(command, "INVALID_INVOCATION", err.Error(), rep, rr) }
 	data, err := buildEventData(t, o, rep)
 	if err != nil { return mutationFailFrom(command, "INVALID_INVOCATION", err.Error(), rep, rr) }
 	fingerprint := domain.OperationFingerprint(t, logicalOperationData(t, data)); data["_operation_fingerprint"] = fingerprint
@@ -66,6 +69,7 @@ func (s *WorkflowService) mutate(ctx context.Context, command string, t domain.W
 	before := rep.Aggregate.State
 	if t == domain.EventMigrate { before = domain.LifecycleState(domain.ProjectLifecycle(rep.Aggregate.State)) }
 	after, err := plannedState(t, rep.Aggregate.State, o); if err != nil { return mutationFailFrom(command, "TRANSITION_BLOCKED", err.Error(), rep, rr) }
+	if t == domain.EventTaskComplete { if o.TaskID!=rep.TaskProgress.Current || rep.TaskProgress.Current=="" { return mutationFailFrom(command,"TRANSITION_BLOCKED","only the current planned Txx task can be completed",rep,rr) }; if rep.CurrentGit.Dirty || rep.GitDrift.Changed { return mutationFailFrom(command,"STALE_GIT_STATE","task completion requires a clean, checkpointed Git HEAD",rep,rr) } }
 	digest := rep.Aggregate.AcceptedContractDigest; if digest == "" { digest = rep.Contract.Digest }
 	if t == domain.EventScope && strings.ToLower(o.ScopeAction) == "accept" { digest = rep.Contract.Digest }
 	var parent *string; if rep.Aggregate.LastEvent != nil { x := rep.Aggregate.LastEvent.EventID; parent = &x }
@@ -73,7 +77,13 @@ func (s *WorkflowService) mutate(ctx context.Context, command string, t domain.W
 	if t != domain.EventScope { ev.Git = gitEventSnapshot(rep.CurrentGit) }
 	trial := append(append([]domain.WorkflowEvent(nil), rep.Aggregate.Events...), ev)
 	if _, err := domain.ReplayWorkflow(rep.Repository.FullName(), rep.Issue.Number, trial); err != nil { return mutationFailFrom(command, workflowErrorCode(err, "PROTOCOL_ERROR"), err.Error(), rep, rr) }
+	if _,err:=domain.ReplayTaskProgress(rep.Contract,trial);err!=nil{return mutationFailFrom(command,workflowErrorCode(err,"PROTOCOL_ERROR"),err.Error(),rep,rr)}
+	if _,err:=domain.ReplaySettlement(trial);err!=nil{return mutationFailFrom(command,workflowErrorCode(err,"PROTOCOL_ERROR"),err.Error(),rep,rr)}
+	if t == domain.EventComplete && rep.Aggregate.State==domain.StateWaiting {if len(rep.Aggregate.WaitingConditions)>0&&!domain.WaitConditionsResolved(rep.Aggregate.WaitingConditions){return mutationFailFrom(command,"WAITING","named external conditions remain unresolved; recheck all before complete",rep,rr)};if len(rep.Aggregate.WaitingConditions)==0&&len(o.Validation)==0&&len(rep.Settlement.Items)==0{return mutationFailFrom(command,"WAITING","direct completion from legacy WAITING requires explicit final validation or settlement evidence",rep,rr)}}
 	if t == domain.EventComplete { if err := completionGate(rep, o); err != nil { return mutationFailFrom(command, workflowErrorCode(err, "VALIDATION_FAILED"), err.Error(), rep, rr) } }
+	if t == domain.EventSettle {if rep.CurrentGit.Dirty||rep.GitDrift.Changed{return mutationFailFrom(command,"STALE_GIT_STATE","settlement requires clean, checkpointed Git HEAD",rep,rr)};if err:=validateSettlementReference(rep,o.SettlementItem);err!=nil{return mutationFailFrom(command,workflowErrorCode(err,"INVALID_INVOCATION"),err.Error(),rep,rr)}}
+	
+	if t == domain.EventDefer { if err:=deferSettlementGate(rep);err!=nil{return mutationFailFrom(command,workflowErrorCode(err,"TRANSITION_BLOCKED"),err.Error(),rep,rr)};if err := deferGate(ctx, s, rep, o); err != nil { return mutationFailFrom(command, workflowErrorCode(err, "TRANSITION_BLOCKED"), err.Error(), rep, rr) } }
 	comment, err := domain.RenderWorkflowEvent(ev); if err != nil { return mutationFailFrom(command, "INTERNAL_ERROR", err.Error(), rep, rr) }
 	preview := MutationPreview{Event: ev, Comment: comment, OperationID: op, DryRun: o.DryRun}
 	if o.DryRun {
@@ -89,7 +99,19 @@ func (s *WorkflowService) mutate(ctx context.Context, command string, t domain.W
 		}
 		r := result.Failure(command, "GITHUB_UNAVAILABLE", "workflow write outcome unknown; retry with the same --operation-id", map[string]any{"operation_id": op, "outcome_unknown": true}, preview); copyWorkflowContext(&r, rr); return r, result.ExitGitHub
 	}
-	sr, sc := s.Status(ctx, o.WorkflowOptions); if !sr.OK { return sr, sc }
+	sr, sc := s.Status(ctx, o.WorkflowOptions)
+	if !sr.OK {
+		// The comment append was acknowledged by GitHub. A subsequent read can
+		// fail independently (for example through a transient proxy error).
+		// Preserve the operation identity so the caller can safely replay it;
+		// never report a failed write or emit a second event on retry.
+		if sc == result.ExitGitHub {
+			r := result.Failure(command, "GITHUB_UNAVAILABLE", "workflow event was appended, but readback failed; retry with the same --operation-id", map[string]any{"operation_id": op, "outcome_unknown": true, "write_acknowledged": true}, preview)
+			copyWorkflowContext(&r, rr)
+			return r, result.ExitGitHub
+		}
+		return sr, sc
+	}
 	sr.Command, sr.CanonicalCommand = command, command
 	sr.NextActions = nextAfterMutation(t, sr.Lifecycle)
 	return sr, result.ExitOK

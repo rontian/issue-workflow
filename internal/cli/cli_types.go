@@ -32,10 +32,12 @@ type options struct{
 	Issue int
 	Interactive bool
 	OperationID,RunID,Summary,Next,Reason,ProposalEventID string
-	Title,Goal,ContractID string
+	Title,Goal,ContractID,TaskID string
+	SettlementItemID,SettlementKind,SettlementFact,SettlementDisposition,SettlementTarget string
+	OwnerConfirmed bool
 	Pushed bool
 	PR int
 	Portable,Resolved,Apply bool
-	ScopeItems,OutOfScope,Acceptance,Constraints,Validation,Dependencies,Warnings,Findings stringList
+	ScopeItems,OutOfScope,Acceptance,Constraints,Validation,Dependencies,Warnings,Findings,Conditions,Tasks stringList
 	ScopeAction string
 }

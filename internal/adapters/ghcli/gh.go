@@ -63,8 +63,28 @@ func (c *Client) IssueDetails(ctx context.Context, repo domain.RepositoryIdentit
 }
 func (c *Client) IssueComments(ctx context.Context, repo domain.RepositoryIdentity, number int) ([]domain.GitHubComment, error) {
 	endpoint := fmt.Sprintf("repos/%s/%s/issues/%d/comments?per_page=100", repo.Owner, repo.Repo, number)
-	out, err := c.runWithEnv(ctx, repoEnv(repo), "api", "--paginate", "--slurp", endpoint, "-H", "Accept: application/vnd.github+json")
-	if err != nil { return nil, err }
+	// Only a read-only, complete-page fetch may be retried. Never retry
+	// AppendIssueComment: a transport error after a write has an unknown
+	// outcome and must be recovered through its operation_id instead.
+	const maxReadAttempts = 2
+	var out []byte
+	var err error
+	for attempt := 0; attempt < maxReadAttempts; attempt++ {
+		if ctx.Err() != nil { return nil, ctx.Err() }
+		out, err = c.runWithEnv(ctx, repoEnv(repo), "api", "--paginate", "--slurp", endpoint, "-H", "Accept: application/vnd.github+json")
+		if err == nil { break }
+		if ctx.Err() != nil { return nil, ctx.Err() }
+		if attempt+1 < maxReadAttempts {
+			timer := time.NewTimer(200 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				if !timer.Stop() { select { case <-timer.C: default: } }
+				return nil, ctx.Err()
+			case <-timer.C:
+			}
+		}
+	}
+	if err != nil { return nil, fmt.Errorf("read issue comments failed after %d attempts: %w", maxReadAttempts, err) }
 	comments, err := ParseCommentPages(out)
 	if err != nil { return nil, fmt.Errorf("decode gh issue comments: %w", err) }
 	return comments, nil
@@ -93,4 +113,14 @@ func (c *Client) AppendIssueComment(ctx context.Context, repo domain.RepositoryI
 func (c *Client) Login(ctx context.Context, host string) error {
 	args := []string{"auth", "login"}; if host != "" { args = append(args, "--hostname", host) }
 	return c.runner.RunInteractive(ctx, ports.Command{Name: "gh", Args: args}, c.stdin, c.stdout, c.stderr)
+}
+
+func (c *Client) CloseIssue(ctx context.Context,repo domain.RepositoryIdentity,number int,reason string)error{
+    if reason!="completed"&&reason!="not planned"{return fmt.Errorf("unsupported GitHub close reason")}
+    _,err:=c.runWithEnv(ctx,repoEnv(repo),"issue","close",strconv.Itoa(number),"--repo",target(repo),"--reason",reason)
+    return err
+}
+func (c *Client) ReopenIssue(ctx context.Context,repo domain.RepositoryIdentity,number int)error{
+    _,err:=c.runWithEnv(ctx,repoEnv(repo),"issue","reopen",strconv.Itoa(number),"--repo",target(repo))
+    return err
 }

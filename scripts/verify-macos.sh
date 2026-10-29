@@ -1,0 +1,336 @@
+#!/usr/bin/env bash
+# Portable macOS bash 3.2; no Homebrew GNU utilities required.
+# Usage:
+#   bash scripts/verify-macos.sh
+#   IW_TEST_CONFIRM=YES bash scripts/verify-macos.sh --live
+#   IW_TEST_CONFIRM=YES bash scripts/verify-macos.sh --live --cleanup
+set -uo pipefail
+export LC_ALL=C
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+REPORT_BASE="${IW_VERIFY_REPORT_DIR:-${HOME}/Library/Logs/iw-verification}"
+REPORT_DIR="${REPORT_BASE%/}/${STAMP}-$$"
+mkdir -p "$REPORT_DIR" || exit 1
+BIN_DIR="$REPORT_DIR/bin"
+mkdir -p "$BIN_DIR"
+TARGET_REPO="rontian/pi-test"
+LIVE=0
+CLEANUP=0
+RESUME_ISSUE=""
+FAILURES=0
+ISSUE=""
+TEST_BRANCH=""
+PUBLISHED_BRANCH=""
+CHECKOUT_A=""
+CHECKOUT_B=""
+STAGE="local"
+printf '%s\n' "Verification output: $REPORT_DIR"
+printf 'status,stage,check,exit_code\n' > "$REPORT_DIR/results.csv"
+printf 'date_utc=%s\nroot=%s\n' "$STAMP" "$ROOT" > "$REPORT_DIR/meta.txt"
+git -C "$ROOT" rev-parse HEAD >> "$REPORT_DIR/meta.txt" 2>/dev/null || :
+git -C "$ROOT" branch --show-current >> "$REPORT_DIR/meta.txt" 2>/dev/null || :
+
+usage() {
+  echo "Usage: bash scripts/verify-macos.sh [--live] [--cleanup] [--resume-issue N]"
+  echo "Default: local Go tests, race, vet, build, install and CLI smoke (no GitHub writes)."
+  echo "--live requires IW_TEST_CONFIRM=YES; writes only to test branch and fresh [iw-blackbox] Issue in rontian/pi-test."
+  echo "--cleanup can be combined with --live; deletes ONLY a test branch created in this invocation."
+  echo "--resume-issue N continues one existing [iw-blackbox] test Issue after START/CHECKPOINT; it never creates a new Issue or branch."
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --live) LIVE=1; shift ;;
+    --cleanup) CLEANUP=1; shift ;;
+    --resume-issue)
+      if [ "$#" -lt 2 ]; then usage; exit 2; fi
+      RESUME_ISSUE="$2"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage; exit 2 ;;
+  esac
+done
+if [ -n "$RESUME_ISSUE" ]; then
+  case "$RESUME_ISSUE" in *[!0-9]*|'') echo "Invalid --resume-issue number" >&2; exit 2 ;; esac
+  if [ "$RESUME_ISSUE" -le 0 ] || [ "$LIVE" -ne 1 ] || [ "$CLEANUP" -eq 1 ]; then
+    echo "--resume-issue requires --live and excludes --cleanup" >&2; exit 2
+  fi
+fi
+if [ "$CLEANUP" -eq 1 ] && [ "$LIVE" -ne 1 ]; then
+  echo "--cleanup requires --live" >&2; exit 2
+fi
+if [ "$LIVE" -eq 1 ] && [ "${IW_TEST_CONFIRM:-}" != YES ]; then
+  echo "Live test is disabled. Set IW_TEST_CONFIRM=YES explicitly." >&2; exit 2
+fi
+
+record() {
+  status="$1"; check="$2"; code="$3"
+  printf '%s,%s,%s,%s\n' "$status" "$STAGE" "$check" "$code" >> "$REPORT_DIR/results.csv"
+  echo "[$status] $STAGE/$check (exit $code)"
+  if [ "$status" != PASS ]; then FAILURES=$((FAILURES+1)); fi
+}
+run() {
+  check="$1"; shift
+  log="$REPORT_DIR/${STAGE}-${check}.log"
+  echo ">> $STAGE/$check"
+  if "$@" > "$log" 2>&1; then
+    record PASS "$check" 0
+  else
+    rc=$?
+    record FAIL "$check" "$rc"
+    tail -n 35 "$log" >&2
+  fi
+}
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || { echo "Missing dependency: $1" >&2; record FAIL "missing-$1" 127; return 1; }
+}
+assert_json() {
+  echo "$1" | jq -e "$2" >/dev/null 2>&1
+}
+live_iw() {
+  # Logs contain test Issue data. Do not forward unreviewed logs from private repositories.
+  "$BIN_DIR/iw" "$@" --json
+}
+# Clone only into a newly created verification directory.  GitHub's HTTPS/HTTP2
+# transport may be unstable on some macOS/network configurations; force HTTP/1.1
+# via git clone --config (also persisted for subsequent remote operations).
+# Retry transport failures without ever touching the user's working checkout.
+clone_sandbox_checkout() {
+  dest="$1"
+  if [ "$dest" != "$REPORT_DIR/checkout-a" ] && [ "$dest" != "$REPORT_DIR/checkout-b" ]; then
+    echo "Refusing clone outside verification directory" >&2
+    return 2
+  fi
+  attempt=1
+  while [ "$attempt" -le 3 ]; do
+    if [ -e "$dest" ] || [ -L "$dest" ]; then rm -rf "$dest" || return 1; fi
+    echo "Clone attempt $attempt/3 (HTTP/1.1)"
+    if gh repo clone "$TARGET_REPO" "$dest" -- --depth 1 --config http.version=HTTP/1.1; then
+      if [ -d "$dest/.git" ]; then return 0; fi
+    fi
+    if [ "$attempt" -lt 3 ]; then sleep $((attempt * 2)); fi
+    attempt=$((attempt + 1))
+  done
+  return 1
+}
+run_live_step() {
+  name="$1"; shift
+  log="$REPORT_DIR/live-$name.json"
+  attempts=1
+  while [ "$attempts" -le 3 ]; do
+    if "$@" > "$log" 2> "$REPORT_DIR/live-$name.stderr"; then
+      rc=0
+      if jq -e '.ok == true and .schema == "iw.command-result/v2"' "$log" >/dev/null 2>&1; then
+        record PASS "$name" 0; return 0
+      fi
+      rc=1
+    else
+      rc=$?
+    fi
+    errcode="$(jq -r '.error.code // empty' "$log" 2>/dev/null || :)"
+    echo "live/$name attempt $attempts: exit=$rc error=${errcode:-unavailable}" >&2
+    if [ "$attempts" -lt 3 ] && [ "$rc" -eq 4 ]; then
+      case "$errcode" in
+        GITHUB_UNAVAILABLE|REPOSITORY_NOT_FOUND|ISSUE_NOT_FOUND)
+          echo "Retrying identical command (operation ID unchanged)." >&2
+          sleep $((attempts * 2))
+          attempts=$((attempts+1))
+          continue ;;
+      esac
+    fi
+    break
+  done
+  record FAIL "$name" "$rc"
+  jq -c '{ok,error,state,lifecycle}' "$log" >&2 2>/dev/null || :
+  tail -n 10 "$REPORT_DIR/live-$name.stderr" >&2 2>/dev/null || :
+  return 1
+}
+finish() {
+  STAGE=local
+  echo "----------------------------------------"
+  echo "Results: $REPORT_DIR/results.csv"
+  echo "Repo state: $REPORT_DIR/meta.txt"
+  echo "Created live Issue: ${ISSUE:-none}"
+  echo "Confirmed remote test branch: ${PUBLISHED_BRANCH:-none}"
+  echo "Fail count: $FAILURES"
+  echo "Send results.csv + failing step logs after removing any private information."
+  if [ "$FAILURES" -ne 0 ]; then exit 1; fi
+}
+trap finish EXIT
+
+STAGE=local
+require_command go || exit 1
+require_command git || exit 1
+echo "Go: $(go version)"
+run shell-syntax bash -n "$ROOT/scripts/verify-macos.sh"
+# Compile all Go packages without running tests; unlike gofmt, this verifies only compilable source.
+run go-compile bash -c 'cd "$1" && go test -run "^$" ./...' _ "$ROOT"
+run unit bash -c 'cd "$1" && go test ./...' _ "$ROOT"
+run race bash -c 'cd "$1" && go test -race ./...' _ "$ROOT"
+run vet bash -c 'cd "$1" && go vet ./...' _ "$ROOT"
+run build bash -c 'cd "$1" && go build -o "$2" ./cmd/iw' _ "$ROOT" "$BIN_DIR/iw"
+run install bash -c 'cd "$1" && GOBIN="$2" go install ./cmd/iw' _ "$ROOT" "$BIN_DIR"
+
+if [ -x "$BIN_DIR/iw" ]; then
+  run version-schema bash -c '"$1" version --json | grep -q '"'"'"schema":"iw.command-result/v2"'"'"'' _ "$BIN_DIR/iw"
+  run capability-schema bash -c '"$1" capabilities --json | grep -q '"'"'"schema":"iw.capabilities/v1"'"'"'' _ "$BIN_DIR/iw"
+  run help bash -c '"$1" --help | grep -q "iw"' _ "$BIN_DIR/iw"
+fi
+if [ "$FAILURES" -ne 0 ]; then
+  echo "Local validation failed; skipping any live GitHub changes." >&2
+  exit 1
+fi
+if [ "$LIVE" -eq 0 ]; then
+  echo "Local-only validation completed. Run with --live after reviewing the test isolation policy."
+  exit 0
+fi
+
+STAGE=live
+require_command gh || exit 1
+require_command jq || exit 1
+# Never run black-box tests in Core or .pi; use only the dedicated sandbox.
+if [ "${IW_TEST_REPO:-rontian/pi-test}" != "$TARGET_REPO" ]; then
+  echo "Safety guard: live repository must be exactly $TARGET_REPO" >&2
+  record FAIL wrong-repository 2; exit 1
+fi
+run auth bash -c 'gh auth status >/dev/null 2>&1'
+if [ "$FAILURES" -ne 0 ]; then exit 1; fi
+
+CHECKOUT_A="$REPORT_DIR/checkout-a"
+CHECKOUT_B="$REPORT_DIR/checkout-b"
+if [ -n "$RESUME_ISSUE" ]; then
+  ISSUE="$RESUME_ISSUE"
+  # Verify native Issue identity and a matching Task Contract before touching it.
+  if ! run resume-inspect gh issue view "$ISSUE" --repo "$TARGET_REPO" --json title,state,body; then exit 1; fi
+  cp "$REPORT_DIR/live-resume-inspect.log" "$REPORT_DIR/live-reuse-issue.json" || exit 1
+  issue_title="$(jq -r '.title // empty' "$REPORT_DIR/live-reuse-issue.json")"
+  case "$issue_title" in
+    '[iw-blackbox] iw-blackbox-'*) TEST_BRANCH="${issue_title#'[iw-blackbox] '}" ;;
+    *) echo "Refusing non-blackbox Issue" >&2; record FAIL reuse-identity 2; exit 1 ;;
+  esac
+  if ! printf '%s\n' "$TEST_BRANCH" | grep -Eq '^iw-blackbox-[0-9]{8}T[0-9]{6}Z-[0-9]+$'; then
+    echo "Refusing unexpected branch identity" >&2; record FAIL reuse-identity 2; exit 1
+  fi
+  if ! jq -e --arg op "$TEST_BRANCH" '.state == "OPEN" and (.body | contains($op)) and (.body | contains("iw:task-contract:v1"))' "$REPORT_DIR/live-reuse-issue.json" >/dev/null; then
+    echo "Refusing changed/non-open test Issue" >&2; record FAIL reuse-contract 2; exit 1
+  fi
+  # This recovery entry point intentionally supports only early START/CHECKPOINT
+  # failures. Later states require a dedicated stage-aware continuation.
+  if ! run reuse-events gh api "repos/$TARGET_REPO/issues/$ISSUE/comments?per_page=100"; then exit 1; fi
+  cp "$REPORT_DIR/live-reuse-events.log" "$REPORT_DIR/live-reuse-comments.json" || exit 1
+  if ! jq -e 'length <= 2 and all(.[]; (.body | contains("\"event_type\":\"START\"") or contains("\"event_type\":\"CHECKPOINT\"")))' "$REPORT_DIR/live-reuse-comments.json" >/dev/null; then
+    echo "Existing Issue is past checkpoint; refusing to replay earlier stages" >&2; record FAIL reuse-stage 2; exit 1
+  fi
+  run clone-a clone_sandbox_checkout "$CHECKOUT_A"
+  if [ "$FAILURES" -ne 0 ]; then exit 1; fi
+  run fetch-a git -C "$CHECKOUT_A" fetch --no-tags origin "+refs/heads/$TEST_BRANCH:refs/remotes/origin/$TEST_BRANCH"
+  if [ "$FAILURES" -ne 0 ]; then exit 1; fi
+  # Shallow single-branch clones do not recognize the explicitly fetched branch
+  # for --track until it is registered in this clone's remote fetch config.
+  run track-a git -C "$CHECKOUT_A" remote set-branches --add origin "$TEST_BRANCH"
+  if [ "$FAILURES" -ne 0 ]; then exit 1; fi
+  run branch-a git -C "$CHECKOUT_A" switch --track -c "$TEST_BRANCH" "origin/$TEST_BRANCH"
+  if [ "$FAILURES" -ne 0 ]; then exit 1; fi
+  run head-a bash -c 'actual="$(git -C "$1" rev-parse HEAD)" && expected="$(git -C "$1" rev-parse "refs/remotes/origin/$2")" && [ "$actual" = "$expected" ]' _ "$CHECKOUT_A" "$TEST_BRANCH"
+  if [ "$FAILURES" -ne 0 ]; then exit 1; fi
+  PUBLISHED_BRANCH="$TEST_BRANCH"
+  OP="$TEST_BRANCH"
+  record PASS reuse-existing 0
+else
+  TEST_BRANCH="iw-blackbox-${STAMP}-$$"
+  run clone-a clone_sandbox_checkout "$CHECKOUT_A"
+  if [ "$FAILURES" -ne 0 ]; then exit 1; fi
+  run branch-a git -C "$CHECKOUT_A" switch -c "$TEST_BRANCH"
+  run commit-a git -C "$CHECKOUT_A" -c user.name="iw-blackbox" -c user.email="iw-blackbox@users.noreply.github.com" -c commit.gpgsign=false commit --allow-empty -m "[iw-blackbox] isolated workflow HEAD $STAMP"
+  run publish-a git -C "$CHECKOUT_A" push -u origin "$TEST_BRANCH"
+  if [ "$FAILURES" -ne 0 ]; then exit 1; fi
+  PUBLISHED_BRANCH="$TEST_BRANCH"
+  OP="$TEST_BRANCH"
+fi
+
+cd "$CHECKOUT_A" || exit 1
+if [ -z "$RESUME_ISSUE" ]; then
+  if ! run_live_step create live_iw new --title "[iw-blackbox] $OP" --goal "Verify iw with a dedicated test-only issue" --scope "Exercise the Core lifecycle" --out-of-scope "Modify unrelated repository data" --acceptance "The workflow is verified" --task "T01: Synthetic first milestone" --task "T02: Synthetic later milestone" --validation "true" --operation-id "$OP"; then exit 1; fi
+  ISSUE="$(jq -r '.issue // empty' "$REPORT_DIR/live-create.json")"
+  case "$ISSUE" in ''|*[!0-9]*) echo "Could not identify created Issue" >&2;record FAIL issue-number 1;exit 1;; esac
+fi
+echo "Test Issue: https://github.com/$TARGET_REPO/issues/$ISSUE"
+run_live_step doctor live_iw doctor --issue "$ISSUE" || exit 1
+run_live_step start live_iw start "$ISSUE" --operation-id "$OP-start" || exit 1
+# Retry of the exact same logical operation must not create a second event.
+run_live_step start-idempotent live_iw start "$ISSUE" --operation-id "$OP-start" || exit 1
+if ! jq -e '(.warnings | index("IDEMPOTENT_REPLAY")) != null' "$REPORT_DIR/live-start-idempotent.json" >/dev/null; then record FAIL start-idempotency 1;exit 1;fi
+record PASS start-idempotency 0
+run_live_step checkpoint live_iw checkpoint "$ISSUE" --summary "Safe synthetic milestone" --next "test external wait" --validation "v1=pass:synthetic true check" --operation-id "$OP-checkpoint" || exit 1
+run_live_step task-status-a live_iw task status "$ISSUE" || exit 1
+# Completing while T01/T02 are incomplete must be denied without a remote event.
+if live_iw complete "$ISSUE" --summary "must fail before implementation" > "$REPORT_DIR/live-negative-early-complete.json" 2> "$REPORT_DIR/live-negative-early-complete.stderr"; then
+  record FAIL early-complete-rejected 1; exit 1
+elif jq -e '.ok == false and .error.code == "TRANSITION_BLOCKED"' "$REPORT_DIR/live-negative-early-complete.json" >/dev/null; then
+  record PASS early-complete-rejected 0
+else
+  record FAIL early-complete-rejected 1; exit 1
+fi
+run_live_step task-one live_iw task complete "$ISSUE" --task-id T01 --summary "Synthetic implementation T01 completed" --operation-id "$OP-t1" || exit 1
+
+run_live_step wait live_iw wait "$ISSUE" --reason "CI and manual condition" --next "recheck both" --condition ci=waiting:synthetic-pending --condition owner=waiting:synthetic-pending --operation-id "$OP-wait" || exit 1
+# Blind aggregate resolution cannot bypass known individual conditions.
+if live_iw recheck "$ISSUE" --resolved > "$REPORT_DIR/live-negative-blind-recheck.json" 2> "$REPORT_DIR/live-negative-blind-recheck.stderr"; then
+  record FAIL blind-recheck-rejected 1; exit 1
+elif jq -e '.ok == false and .error.code == "INVALID_INVOCATION"' "$REPORT_DIR/live-negative-blind-recheck.json" >/dev/null; then
+  record PASS blind-recheck-rejected 0
+else
+  record FAIL blind-recheck-rejected 1; exit 1
+fi
+run_live_step recheck-partial live_iw recheck "$ISSUE" --condition ci=resolved:synthetic-test-succeeded --condition owner=waiting:synthetic-pending --operation-id "$OP-partial" || exit 1
+if ! jq -e '.lifecycle == "WAITING"' "$REPORT_DIR/live-recheck-partial.json" >/dev/null; then record FAIL partial-stays-waiting 1;exit 1;fi
+record PASS partial-stays-waiting 0
+run_live_step recheck-all live_iw recheck "$ISSUE" --condition ci=resolved:synthetic-test-succeeded --condition owner=resolved:synthetic-owner-approved --operation-id "$OP-recheck" || exit 1
+if ! jq -e '.lifecycle == "IN_PROGRESS"' "$REPORT_DIR/live-recheck-all.json" >/dev/null; then record FAIL all-exits-waiting 1;exit 1;fi
+record PASS all-exits-waiting 0
+
+run_live_step settle-later-task live_iw settle "$ISSUE" --item-id task:T02 --kind implementation --fact pending --disposition deferred --target defer --reason "Move synthetic T02 into the next explicit milestone" --operation-id "$OP-settle-t2" || exit 1
+run_live_step defer live_iw defer "$ISSUE" --reason "later milestone" --next "resume test" --operation-id "$OP-defer" || exit 1
+if ! jq -e '.lifecycle == "DEFERRED"' "$REPORT_DIR/live-defer.json" >/dev/null; then record FAIL deferred-lifecycle 1;exit 1;fi
+record PASS deferred-lifecycle 0
+run_live_step resume live_iw resume "$ISSUE" --summary "resumed in test" --operation-id "$OP-resume" || exit 1
+run_live_step task-two live_iw task complete "$ISSUE" --task-id T02 --summary "Synthetic implementation T02 completed after resume" --operation-id "$OP-t2" || exit 1
+run_live_step handoff live_iw handoff "$ISSUE" --summary "published exact HEAD" --next "restore in checkout-b" --portable --operation-id "$OP-handoff" || exit 1
+
+cd "$REPORT_DIR" || exit 1
+run clone-b clone_sandbox_checkout "$CHECKOUT_B"
+if [ ! -d "$CHECKOUT_B/.git" ]; then exit 1; fi
+cd "$CHECKOUT_B" || exit 1
+run_live_step restore-preview live_iw restore "$ISSUE" || exit 1
+run_live_step restore-apply live_iw restore "$ISSUE" --apply || exit 1
+run_live_step context-b live_iw context "$ISSUE" || exit 1
+if ! jq -e '.data.task_progress.all_completed == true and (.data.settlement.items | length) == 0' "$REPORT_DIR/live-context-b.json" >/dev/null; then record FAIL segment-facts-restored 1;exit 1;fi
+record PASS segment-facts-restored 0
+if ! jq -e '.data.schema == "iw.context/v1"' "$REPORT_DIR/live-context-b.json" >/dev/null; then record FAIL portable-context-schema 1;exit 1;fi
+record PASS portable-context-schema 0
+
+run_live_step review live_iw review "$ISSUE" --summary "Synthetic black-box review passed" --operation-id "$OP-review" || exit 1
+run_live_step complete live_iw complete "$ISSUE" --summary "Synthetic end-to-end workflow passed" --operation-id "$OP-complete" || exit 1
+if ! jq -e '.lifecycle == "COMPLETED"' "$REPORT_DIR/live-complete.json" >/dev/null; then record FAIL completed-lifecycle 1;exit 1;fi
+record PASS completed-lifecycle 0
+
+# Native GitHub Issue close is explicit and independently confirmed by iw.
+run_live_step native-close-completed live_iw issue close "$ISSUE" || exit 1
+if ! jq -e '.data.desired_state == "CLOSED" and .data.applied == true' "$REPORT_DIR/live-native-close-completed.json" >/dev/null; then record FAIL github-close-confirmation 1;exit 1;fi
+record PASS github-close-confirmation 0
+
+# Cancel/reopen are distinct from completed and must preserve native state truth.
+run_live_step workflow-reopen live_iw reopen "$ISSUE" --reason "Synthetic black-box second segment" --operation-id "$OP-reopen" || exit 1
+run_live_step native-reopen live_iw issue reopen "$ISSUE" || exit 1
+run_live_step cancel live_iw cancel "$ISSUE" --reason "Black-box second segment intentionally cancelled" --operation-id "$OP-cancel" || exit 1
+run_live_step native-close-cancelled live_iw issue close "$ISSUE" || exit 1
+
+if [ "$CLEANUP" -eq 1 ]; then
+  # Only clean artifacts this invocation created; do not delete pre-existing data.
+  echo "Test Issue has already been closed by iw; GitHub Issue history is intentionally retained for audit."
+  run cleanup-branch git -C "$CHECKOUT_A" push origin ":refs/heads/$TEST_BRANCH"
+else
+  echo "Cleanup not requested. Only this run's test Issue and branch remain:"
+  echo "  https://github.com/$TARGET_REPO/issues/$ISSUE"
+  echo "  $TEST_BRANCH"
+fi

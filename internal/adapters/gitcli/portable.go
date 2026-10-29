@@ -15,7 +15,9 @@ func (c *Client) RemoteBranchHead(ctx context.Context, dir, remote, branch strin
 }
 
 func (c *Client) FetchRemote(ctx context.Context, dir, remote string) error {
-	_, err := c.run(ctx, dir, "fetch", "--prune", remote); return err
+	// Fetch explicit remote heads: shallow/single-branch clones may have a restricted
+	// remote.origin.fetch refspec and otherwise omit the portable handoff branch.
+	_, err := c.run(ctx, dir, "fetch", "--no-tags", "--prune", remote, "+refs/heads/*:refs/remotes/"+remote+"/*"); return err
 }
 
 func (c *Client) CommitExists(ctx context.Context, dir, head string) bool {
@@ -30,6 +32,10 @@ func (c *Client) RestoreBranch(ctx context.Context, dir, remote, branch, head st
 		if _,err:=c.run(ctx,dir,"switch",branch);err!=nil{return err}
 		if localHead!=head { if _,err:=c.run(ctx,dir,"merge","--ff-only",head);err!=nil{return fmt.Errorf("local branch cannot be safely fast-forwarded to portable handoff: %w",err)} }
 	} else {
+		// A shallow single-branch clone has a restrictive remote.<name>.fetch spec.
+		// Register the intended branch as tracked before switch --track. This only
+		// adds that branch to local remote configuration; it does not rewrite refs.
+		if _,err:=c.run(ctx,dir,"remote","set-branches","--add",remote,branch);err!=nil{return fmt.Errorf("register portable remote branch: %w",err)}
 		if _,err:=c.run(ctx,dir,"switch","-c",branch,"--track",remote+"/"+branch);err!=nil{return err}
 	}
 	got,err:=c.run(ctx,dir,"rev-parse","--verify","HEAD");if err!=nil{return err};if got!=head{return fmt.Errorf("restored HEAD %s does not match expected %s",got,head)}

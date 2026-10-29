@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -90,6 +92,8 @@ type AdapterInstallMarker struct {
 	Repository string `json:"repository"`
 	AssetKind string `json:"asset_kind"`
 	AssetSource string `json:"asset_source"`
+	// Only relative paths and content digests are stored; never local paths or secrets.
+	ManagedFiles map[string]string `json:"managed_files,omitempty"`
 }
 
 type AdapterActionReport struct { Status AdapterStatus `json:"status"`; DryRun bool `json:"dry_run"`; Actions []string `json:"actions"` }
@@ -133,11 +137,26 @@ func (s *AdapterService) Status(ctx context.Context,id string)(result.CommandRes
 	e,m,_,cleanup,err:=s.load(ctx,id);if cleanup!=nil{defer cleanup()};if err!=nil{return adapterFailure("adapter status",err)}
 	root,err:=s.installRoot(e);if err!=nil{return adapterFailure("adapter status",err)}
 	st:=AdapterStatus{Schema:AdapterStatusSchema,ID:id,Repository:e.Repository,RegistryStatus:e.Status,Compatible:adapterCompatible(m),Manifest:&m,Targets:[]string{}}
-	for _,a:=range m.Assets{target,terr:=adapterTarget(root,e,a);if terr!=nil{return adapterFailure("adapter status",terr)};st.Targets=append(st.Targets,target);info,serr:=os.Stat(target);if serr==nil&&info.IsDir(){st.Installed=true;marker,ok:=readManagedMarker(target);st.Managed=st.Managed||ok&&marker.AdapterID==id&&marker.Repository==e.Repository}}
-	r:=result.Success("adapter status",st);if !st.Compatible{r.Warnings=append(r.Warnings,"ADAPTER_INCOMPATIBLE");r.Constraints=append(r.Constraints,"adapter manifest does not declare the current iw v2 schemas")};return r,result.ExitOK
+	allManaged:=true
+	for _,a:=range m.Assets{
+		target,terr:=adapterTarget(root,e,a);if terr!=nil{return adapterFailure("adapter status",terr)}
+		st.Targets=append(st.Targets,target)
+		info,serr:=os.Lstat(target)
+		if os.IsNotExist(serr){allManaged=false;continue}
+		if serr!=nil{return adapterFailure("adapter status",fmt.Errorf("ADAPTER_INSTALL_FAILED: inspect target: %w",serr))}
+		st.Installed=true
+		if !info.IsDir(){allManaged=false;continue}
+		marker,ok:=readManagedMarker(target)
+		if !ok||marker.AdapterID!=id||marker.Repository!=e.Repository||!managedAssetUnmodified(target,marker){allManaged=false}
+	}
+	st.Managed=st.Installed&&allManaged
+	r:=result.Success("adapter status",st)
+	if !st.Compatible{r.Warnings=append(r.Warnings,"ADAPTER_INCOMPATIBLE");r.Constraints=append(r.Constraints,"adapter manifest does not declare the current iw v2 schemas")}
+	if st.Installed&&!st.Managed{r.Warnings=append(r.Warnings,"ADAPTER_UNMANAGED");r.Constraints=append(r.Constraints,"installed adapter targets include unmanaged, missing, or locally modified content")}
+	return r,result.ExitOK
 }
 
-func (s *AdapterService) Doctor(ctx context.Context,id string)(result.CommandResult,int){r,code:=s.Status(ctx,id);if !r.OK{return r,code};st:=r.Data.(AdapterStatus);r.Command="adapter doctor";r.CanonicalCommand="adapter doctor";if !st.Compatible{r.OK=false;r.Error=&result.Error{Code:"ADAPTER_INCOMPATIBLE",Message:"adapter is not compatible with current iw protocol"};return r,result.ExitProtocol};return r,result.ExitOK}
+func (s *AdapterService) Doctor(ctx context.Context,id string)(result.CommandResult,int){r,code:=s.Status(ctx,id);if !r.OK{return r,code};st:=r.Data.(AdapterStatus);r.Command="adapter doctor";r.CanonicalCommand="adapter doctor";if !st.Compatible{r.OK=false;r.Error=&result.Error{Code:"ADAPTER_INCOMPATIBLE",Message:"adapter is not compatible with current iw protocol"};return r,result.ExitProtocol};if st.Installed&&!st.Managed{r.OK=false;r.Error=&result.Error{Code:"ADAPTER_UNMANAGED",Message:"installed adapter content has changed or cannot be verified"};return r,result.ExitConflict};return r,result.ExitOK}
 
 func (s *AdapterService) Install(ctx context.Context,id string,dry bool)(result.CommandResult,int){return s.apply(ctx,"adapter install",id,dry,false)}
 func (s *AdapterService) Update(ctx context.Context,id string,dry bool)(result.CommandResult,int){return s.apply(ctx,"adapter update",id,dry,true)}
@@ -147,7 +166,7 @@ func (s *AdapterService) apply(ctx context.Context,command,id string,dry,updatin
 	for _,a:=range m.Assets{
 		target,err:=adapterTarget(root,e,a);if err!=nil{return adapterFailure(command,err)};report.Status.Targets=append(report.Status.Targets,target)
 		_,statErr:=os.Stat(target);exists:=statErr==nil
-		if exists{marker,managed:=readManagedMarker(target);if !managed||marker.AdapterID!=id||marker.Repository!=e.Repository{return adapterFailure(command,fmt.Errorf("ADAPTER_UNMANAGED: refusing to overwrite existing unmanaged target %s",target))};report.Status.Installed=true;report.Status.Managed=true;if !updating{report.Actions=append(report.Actions,"already managed: "+target);continue}}
+		if exists{marker,managed:=readManagedMarker(target);if !managed||marker.AdapterID!=id||marker.Repository!=e.Repository||!managedAssetUnmodified(target,marker){return adapterFailure(command,fmt.Errorf("ADAPTER_UNMANAGED: refusing to overwrite unmanaged or locally modified target %s",target))};report.Status.Installed=true;report.Status.Managed=true;if !updating{report.Actions=append(report.Actions,"already managed: "+target);continue}}
 		report.Actions=append(report.Actions,map[bool]string{true:"update ",false:"install "}[updating]+target);if dry{continue}
 		if err:=copyManagedAsset(filepath.Join(src,filepath.FromSlash(a.Source)),target,AdapterInstallMarker{Schema:AdapterInstallMarkerSchema,AdapterID:id,Repository:e.Repository,AssetKind:a.Kind,AssetSource:a.Source});err!=nil{return adapterFailure(command,fmt.Errorf("ADAPTER_INSTALL_FAILED: %w",err))};report.Status.Installed=true;report.Status.Managed=true
 	}
@@ -157,7 +176,7 @@ func (s *AdapterService) apply(ctx context.Context,command,id string,dry,updatin
 func (s *AdapterService) Remove(ctx context.Context,id string,dry bool)(result.CommandResult,int){
 	e,m,_,cleanup,err:=s.load(ctx,id);if cleanup!=nil{defer cleanup()};if err!=nil{return adapterFailure("adapter remove",err)};root,err:=s.installRoot(e);if err!=nil{return adapterFailure("adapter remove",err)}
 	report:=AdapterActionReport{Status:AdapterStatus{Schema:AdapterStatusSchema,ID:id,Repository:e.Repository,RegistryStatus:e.Status,Compatible:adapterCompatible(m),Manifest:&m,Targets:[]string{}},DryRun:dry,Actions:[]string{}}
-	for _,a:=range m.Assets{target,err:=adapterTarget(root,e,a);if err!=nil{return adapterFailure("adapter remove",err)};report.Status.Targets=append(report.Status.Targets,target);if _,err:=os.Stat(target);os.IsNotExist(err){continue};marker,managed:=readManagedMarker(target);if !managed||marker.AdapterID!=id||marker.Repository!=e.Repository{return adapterFailure("adapter remove",fmt.Errorf("ADAPTER_UNMANAGED: refusing to remove unmanaged target %s",target))};report.Actions=append(report.Actions,"remove "+target);if !dry{if err:=os.RemoveAll(target);err!=nil{return adapterFailure("adapter remove",fmt.Errorf("ADAPTER_INSTALL_FAILED: %w",err))}}}
+	for _,a:=range m.Assets{target,err:=adapterTarget(root,e,a);if err!=nil{return adapterFailure("adapter remove",err)};report.Status.Targets=append(report.Status.Targets,target);if _,err:=os.Stat(target);os.IsNotExist(err){continue};marker,managed:=readManagedMarker(target);if !managed||marker.AdapterID!=id||marker.Repository!=e.Repository||!managedAssetUnmodified(target,marker){return adapterFailure("adapter remove",fmt.Errorf("ADAPTER_UNMANAGED: refusing to remove unmanaged or locally modified target %s",target))};report.Actions=append(report.Actions,"remove "+target);if !dry{if err:=os.RemoveAll(target);err!=nil{return adapterFailure("adapter remove",fmt.Errorf("ADAPTER_INSTALL_FAILED: %w",err))}}}
 	r:=result.Success("adapter remove",report);return r,result.ExitOK
 }
 
@@ -170,10 +189,63 @@ func readManagedMarker(target string)(AdapterInstallMarker,bool){raw,err:=os.Rea
 func copyManagedAsset(source,target string,marker AdapterInstallMarker)error{
 	info,err:=os.Lstat(source);if err!=nil{return err};if info.Mode()&os.ModeSymlink!=0{return fmt.Errorf("symlink source rejected")};if !info.IsDir(){return fmt.Errorf("adapter asset source must be a directory")}
 	parent:=filepath.Dir(target);if err:=os.MkdirAll(parent,0755);err!=nil{return err};stage,err:=os.MkdirTemp(parent,".iw-stage-*");if err!=nil{return err};defer os.RemoveAll(stage)
-	stageTarget:=filepath.Join(stage,"asset");if err:=copyDirNoSymlinks(source,stageTarget);err!=nil{return err};raw,_:=json.MarshalIndent(marker,"","  ");if err:=os.WriteFile(filepath.Join(stageTarget,".iw-adapter-install.json"),append(raw,'\n'),0644);err!=nil{return err}
-	backup:="";if _,err:=os.Stat(target);err==nil{backup=target+".iw-backup";_ = os.RemoveAll(backup);if err:=os.Rename(target,backup);err!=nil{return err}}
-	if err:=os.Rename(stageTarget,target);err!=nil{if backup!=""{_ = os.Rename(backup,target)};return err};if backup!=""{_ = os.RemoveAll(backup)};return nil
+	stageTarget:=filepath.Join(stage,"asset");if err:=copyDirNoSymlinks(source,stageTarget);err!=nil{return err}
+	files,err:=assetFileDigests(stageTarget);if err!=nil{return err}
+	if len(files)==0{return fmt.Errorf("adapter asset has no managed files")}
+	marker.ManagedFiles=files
+	raw,_:=json.MarshalIndent(marker,"","  ");if err:=os.WriteFile(filepath.Join(stageTarget,".iw-adapter-install.json"),append(raw,'\n'),0644);err!=nil{return err}
+	// Never remove or reuse a predictable sibling path such as target+".iw-backup".
+	// That path may belong to the user or another process. Stage the previous
+	// managed tree under a newly created, unique directory owned by this call.
+	backupDir,backup:="",""
+	if _,err:=os.Lstat(target);err==nil{
+		var createErr error
+		backupDir,createErr=os.MkdirTemp(parent,".iw-backup-*")
+		if createErr!=nil{return createErr}
+		backup=filepath.Join(backupDir,"asset")
+		if err:=os.Rename(target,backup);err!=nil{_ = os.Remove(backupDir);return err}
+	}else if !os.IsNotExist(err){return err}
+	if err:=os.Rename(stageTarget,target);err!=nil{
+		if backup!=""{
+			if rollbackErr:=os.Rename(backup,target);rollbackErr!=nil{
+				// Preserve the previous asset if rollback itself fails.
+				return fmt.Errorf("install failed: %v; rollback failed: %v; previous asset preserved at %s",err,rollbackErr,backup)
+			}
+			_ = os.Remove(backupDir)
+		}
+		return err
+	}
+	if backup!=""{_ = os.RemoveAll(backupDir)}
+	return nil
 }
 func copyDirNoSymlinks(src,dst string)error{return filepath.Walk(src,func(path string,info os.FileInfo,err error)error{if err!=nil{return err};if info.Mode()&os.ModeSymlink!=0{return fmt.Errorf("symlink rejected: %s",path)};rel,err:=filepath.Rel(src,path);if err!=nil{return err};target:=filepath.Join(dst,rel);if info.IsDir(){return os.MkdirAll(target,info.Mode().Perm())};in,err:=os.Open(path);if err!=nil{return err};defer in.Close();out,err:=os.OpenFile(target,os.O_CREATE|os.O_WRONLY|os.O_TRUNC,info.Mode().Perm());if err!=nil{return err};_,cpErr:=io.Copy(out,in);closeErr:=out.Close();if cpErr!=nil{return cpErr};return closeErr})}
 
 func adapterFailure(command string,err error)(result.CommandResult,int){msg:=err.Error();code:="ADAPTER_INSTALL_FAILED";for _,candidate:=range []string{"ADAPTER_NOT_FOUND","ADAPTER_NOT_READY","ADAPTER_MANIFEST_INVALID","ADAPTER_INCOMPATIBLE","ADAPTER_UNMANAGED","ADAPTER_INSTALL_FAILED"}{if strings.HasPrefix(msg,candidate+":"){code=candidate;break}};return result.Failure(command,code,msg,nil,nil),result.ExitCodeFor(code)}
+
+
+// managedAssetUnmodified ensures a previously installed tree has not gained,
+// lost, or modified local content. Legacy markers without an inventory cannot
+// safely authorize destructive update/remove and therefore fail closed.
+func managedAssetUnmodified(target string,marker AdapterInstallMarker)bool{
+	if len(marker.ManagedFiles)==0{return false}
+	actual,err:=assetFileDigests(target);if err!=nil||len(actual)!=len(marker.ManagedFiles){return false}
+	for path,expected:=range marker.ManagedFiles{if actual[path]!=expected{return false}}
+	return true
+}
+
+func assetFileDigests(root string)(map[string]string,error){
+	files:=map[string]string{}
+	err:=filepath.Walk(root,func(path string,info os.FileInfo,err error)error{
+		if err!=nil{return err}
+		if info.Mode()&os.ModeSymlink!=0{return fmt.Errorf("managed asset contains symlink")}
+		if info.IsDir(){return nil}
+		if !info.Mode().IsRegular(){return fmt.Errorf("managed asset contains non-regular file")}
+		rel,err:=filepath.Rel(root,path);if err!=nil{return err}
+		if rel==".iw-adapter-install.json"{return nil}
+		data,err:=os.ReadFile(path);if err!=nil{return err}
+		sum:=sha256.Sum256(data)
+		files[filepath.ToSlash(rel)]=hex.EncodeToString(sum[:])
+		return nil
+	})
+	return files,err
+}

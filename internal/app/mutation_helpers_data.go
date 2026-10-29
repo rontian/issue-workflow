@@ -29,3 +29,13 @@ func parseEventsBestEffort(cs []domain.GitHubComment) ([]domain.WorkflowEvent, e
 	for _, c := range cs { e, err := domain.ParseWorkflowEventComment(c); if err != nil { return nil, err }; if e != nil { out = append(out, *e) } }
 	return out, nil
 }
+
+func waitConditionsAny(v []domain.WaitCondition) []any {
+    out:=make([]any,0,len(v))
+    for _,x:=range v {
+        m:=map[string]any{"id":x.ID,"status":x.Status}
+        if x.Summary!=""{m["summary"]=x.Summary}
+        out=append(out,m)
+    }
+    return out
+}
