@@ -22,9 +22,9 @@ func logicalOperationData(t domain.WorkflowEventType, data map[string]any) map[s
 	case domain.EventPause, domain.EventCancel, domain.EventReopen:
 		copyKey("reason")
 	case domain.EventWait, domain.EventDefer, domain.EventBlocked:
-		copyKey("reason"); copyKey("next")
+		copyKey("reason"); copyKey("next");if t==domain.EventWait{copyKey("conditions")}
 	case domain.EventRecheck:
-		copyKey("resolved"); copyKey("reason")
+		copyKey("resolved"); copyKey("reason"); copyKey("conditions")
 	case domain.EventCheckpoint:
 		copyKey("summary"); copyKey("next"); copyKey("validation")
 	case domain.EventHandoff:
