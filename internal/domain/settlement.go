@@ -46,6 +46,7 @@ func ValidateSettlementItem(item SettlementItem, ownerConfirmed bool)error{
     if !settlementFacts[item.FactStatus]{return fmt.Errorf("invalid settlement fact status %q",item.FactStatus)}
     if !settlementDispositions[item.Disposition]{return fmt.Errorf("invalid settlement disposition %q",item.Disposition)}
     if item.Target!="complete" && item.Target!="defer"{return fmt.Errorf("settlement target must be complete or defer")}
+    if (item.FactStatus=="fail"||item.FactStatus=="findings") && (item.Disposition=="accepted_risk"||item.Disposition=="deferred"){return fmt.Errorf("confirmed failure/finding cannot be waived or deferred")}
     if item.Disposition=="accepted_risk" {
         if item.Kind!="manual_validation"&&item.Kind!="real_resource_validation"&&item.Kind!="acceptance" {
             return fmt.Errorf("accepted_risk is forbidden for %s",item.Kind)
@@ -71,6 +72,7 @@ func ValidateSettlementItem(item SettlementItem, ownerConfirmed bool)error{
     if item.Disposition=="resolved" && item.FactStatus!="pass" && item.FactStatus!="done"{
         return fmt.Errorf("resolved must have pass/done factual evidence")
     }
+    if item.Disposition=="not_applicable" && item.Kind!="manual_validation"&&item.Kind!="real_resource_validation"&&item.Kind!="acceptance"{return fmt.Errorf("hard-required item kind cannot be declared not_applicable by settlement")}
     if item.Disposition=="not_applicable" && item.FactStatus!="not_applicable"{
         return fmt.Errorf("not_applicable disposition requires not_applicable fact")
     }
