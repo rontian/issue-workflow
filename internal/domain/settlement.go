@@ -72,6 +72,7 @@ func ValidateSettlementItem(item SettlementItem, ownerConfirmed bool)error{
     if item.Disposition=="resolved" && item.FactStatus!="pass" && item.FactStatus!="done"{
         return fmt.Errorf("resolved must have pass/done factual evidence")
     }
+    if item.Disposition=="not_applicable" && !ownerConfirmed {return fmt.Errorf("not_applicable requires explicit owner confirmation")}
     if item.Disposition=="not_applicable" && item.Kind!="manual_validation"&&item.Kind!="real_resource_validation"&&item.Kind!="acceptance"{return fmt.Errorf("hard-required item kind cannot be declared not_applicable by settlement")}
     if item.Disposition=="not_applicable" && item.FactStatus!="not_applicable"{
         return fmt.Errorf("not_applicable disposition requires not_applicable fact")
