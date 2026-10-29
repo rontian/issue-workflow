@@ -33,8 +33,8 @@ func nextAfterMutation(t domain.WorkflowEventType, lifecycle string) []string {
 	case domain.EventBlocked: return []string{"resolve blocker then iw resume <issue>"}
 	case domain.EventReview: return []string{"iw fix <issue> if findings exist; otherwise complete when gates pass"}
 	case domain.EventFix: return []string{"apply fixes then iw review <issue>"}
-	case domain.EventComplete: return []string{"workflow COMPLETED; GitHub Issue closure remains explicit"}
-	case domain.EventCancel: return []string{"workflow CANCELLED; reopen explicitly if work resumes"}
+	case domain.EventComplete: return []string{"complete recorded; use iw issue close <issue> to explicitly close the native GitHub Issue"}
+	case domain.EventCancel: return []string{"cancel recorded; use iw issue close <issue> to close as not planned"}
 	case domain.EventReopen: return []string{"workflow returned to READY; use iw start <issue>"}
 	default: return []string{}
 	}
