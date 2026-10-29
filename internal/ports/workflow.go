@@ -18,3 +18,10 @@ type WorkflowGitHubPort interface {
 type TaskListGitHubPort interface {
 	TaskIssues(context.Context, domain.RepositoryIdentity) ([]domain.GitHubIssueDetails, error)
 }
+
+// GitHubIssueStatePort handles the native Issue open/closed fact separately
+// from the canonical workflow Event Log. Agents must not bypass iw with gh.
+type GitHubIssueStatePort interface {
+    CloseIssue(context.Context,domain.RepositoryIdentity,int,string) error
+    ReopenIssue(context.Context,domain.RepositoryIdentity,int) error
+}
