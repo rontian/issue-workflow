@@ -99,7 +99,19 @@ func (s *WorkflowService) mutate(ctx context.Context, command string, t domain.W
 		}
 		r := result.Failure(command, "GITHUB_UNAVAILABLE", "workflow write outcome unknown; retry with the same --operation-id", map[string]any{"operation_id": op, "outcome_unknown": true}, preview); copyWorkflowContext(&r, rr); return r, result.ExitGitHub
 	}
-	sr, sc := s.Status(ctx, o.WorkflowOptions); if !sr.OK { return sr, sc }
+	sr, sc := s.Status(ctx, o.WorkflowOptions)
+	if !sr.OK {
+		// The comment append was acknowledged by GitHub. A subsequent read can
+		// fail independently (for example through a transient proxy error).
+		// Preserve the operation identity so the caller can safely replay it;
+		// never report a failed write or emit a second event on retry.
+		if sc == result.ExitGitHub {
+			r := result.Failure(command, "GITHUB_UNAVAILABLE", "workflow event was appended, but readback failed; retry with the same --operation-id", map[string]any{"operation_id": op, "outcome_unknown": true, "write_acknowledged": true}, preview)
+			copyWorkflowContext(&r, rr)
+			return r, result.ExitGitHub
+		}
+		return sr, sc
+	}
 	sr.Command, sr.CanonicalCommand = command, command
 	sr.NextActions = nextAfterMutation(t, sr.Lifecycle)
 	return sr, result.ExitOK
