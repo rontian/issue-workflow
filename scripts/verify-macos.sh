@@ -112,7 +112,8 @@ require_command go || exit 1
 require_command git || exit 1
 echo "Go: $(go version)"
 run shell-syntax bash -n "$ROOT/scripts/verify-macos.sh"
-run go-syntax bash -o pipefail -c 'cd "$1" && find . -type f -name "*.go" -print0 | xargs -0 gofmt -e -d >/dev/null' _ "$ROOT"
+# Compile all Go packages without running tests; unlike gofmt, this verifies only compilable source.
+run go-compile bash -c 'cd "$1" && go test -run "^$" ./...' _ "$ROOT"
 run unit bash -c 'cd "$1" && go test ./...' _ "$ROOT"
 run race bash -c 'cd "$1" && go test -race ./...' _ "$ROOT"
 run vet bash -c 'cd "$1" && go vet ./...' _ "$ROOT"
