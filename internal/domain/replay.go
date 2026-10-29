@@ -20,13 +20,14 @@ func applyCommonAggregate(agg *WorkflowAggregate,resumeState *WorkflowState,acce
 func applyV2Aggregate(agg *WorkflowAggregate,e WorkflowEvent){switch e.EventType{
 	case EventWait:agg.WaitingReason=stringData(e.Data,"reason");agg.WaitingConditions,_=WaitConditionsFromData(e.Data)
 	case EventRecheck:if _,ok:=e.Data["conditions"];ok{agg.WaitingConditions,_=WaitConditionsFromData(e.Data)};if boolData(e.Data,"resolved"){agg.WaitingReason=""}
+	case EventScope:if scopeAction(e)=="accept"{agg.ReviewStatus="";agg.ReviewHead="";agg.ReviewFindings=[]string{}}
 	case EventDefer:agg.DeferredReason=stringData(e.Data,"reason")
 	case EventResume:if e.StateBefore==StateDeferred{agg.DeferredReason=""};if agg.Phase==""{agg.Phase="IMPLEMENTATION"}
 	case EventReview:findings:=stringSliceData(e.Data,"findings");if len(findings)>0{agg.ReviewStatus,agg.ReviewFindings="findings",findings}else{agg.ReviewStatus,agg.ReviewFindings="passed",[]string{}};if e.Git!=nil{agg.ReviewHead=e.Git.Head}else{agg.ReviewHead=""};agg.Phase="REVIEW"
 	case EventFix:agg.ReviewStatus="pending";agg.ReviewHead="";agg.Phase="FIX"
 	case EventStart:agg.Phase="IMPLEMENTATION"
 	case EventReopen:agg.Phase="IMPLEMENTATION";agg.ReviewStatus="";agg.ReviewHead="";agg.ReviewFindings=[]string{};agg.PortableHandoff=nil;agg.WaitingReason="";agg.WaitingConditions=nil;agg.DeferredReason="";agg.BlockReason="";agg.ResumeState=""
-	case EventComplete,EventCancel:agg.Phase=""
+	case EventComplete,EventCancel:agg.Phase="";agg.WaitingReason="";agg.WaitingConditions=nil
 	case EventHandoff:if boolData(e.Data,"portable"){agg.PortableHandoff=&PortableHandoff{EventID:e.EventID,Remote:stringData(e.Data,"remote"),Branch:stringData(e.Data,"branch"),Head:stringData(e.Data,"head")}}
 }}
 
