@@ -10,7 +10,7 @@
 | Task Contract + 计划 Txx/checklist 同步 | 本候选分支增加 `Implementation Tasks`、`TASK_COMPLETE`、`iw.task-progress/v1` 和 `iw task` | 已约束 task 顺序/complete/defer，但不自动同步老 Pi checklist（Core 保持 Issue Body 合同不变） | 实仓完成 T01、显式延期 T02、跨目录恢复 T02；伪造跳任务要被拒绝 |
 | Settlement 逐项 decision + accepted risk | 本候选分支增加 `SETTLE` / `iw.settlement/v1` 与 Core 规则 | Host 交互/owner confirmation UI 尚未完成，逐项 inventory 与 native Pi 投影尚未全面迁移 | owner-only manual/real-resource/acceptance risk；不能标记 hard PASS；HEAD 变化失效；defer/resume 清理活跃决策 |
 | defer release | 本候选分支补 remote HEAD、validation/review/contract、显式 task future settlement gate | 真实仓和复杂复核仍未验收；未完整枚举所有项目-specific gate | 不能凭 `--reason` 认定工作结束；Issue OPEN，恢复后不继承旧 risk decision |
-| completion gate | 当前 HEAD validation + review + TaskProgress + typed Settlement（候选分支） | 缺 native GitHub close/reopen policy 完整闭环、完整 acceptance inventory 与真实验收 | hard gates fail closed；Issue GitHub open/closed 单独审计 |
+| completion gate | 当前 HEAD validation + review + TaskProgress + typed Settlement + Native GitHub Issue close/reopen（候选分支） | 本候选分支新增显式 `iw issue close|reopen`；真实仓仍需复读确认验收、完整 acceptance inventory 与真实验收 | hard gates fail closed；Issue GitHub open/closed 单独审计 |
 | portable handoff/restore | 已实现；有 fake Git 单测 | 缺双工作目录真实 GitHub 黑盒 | exact published HEAD、clean worktree、restore conflict/fail closed |
 | v1 迁移、event replay/idempotency | 已实现并有测试 | 仍缺真实 GitHub failure injection | fork/duplicate/unknown outcome 不产生双事件 |
 | Pi Todo/Goal/settlement UI、continuous driver | 不在 Core | **Codex / Pi 各自 Host Adapter** | host runtime 只能作为 projection；不能产生新 canonical fact |
