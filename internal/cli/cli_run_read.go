@@ -34,7 +34,8 @@ func(c *CLI)runEnvironmentOrRead(ctx context.Context,command string,o options,wo
 		if o.AdapterID!=""{if c.Adapter==nil{return true,c.render(result.Failure("init","ENVIRONMENT_INVALID","adapter service unavailable",nil,r.Data),result.ExitEnvironment,o.JSON)};ar,ac:=c.Adapter.Install(ctx,o.AdapterID,o.DryRun);combined:=result.Success("init",map[string]any{"core":r.Data,"adapter":ar.Data});combined.Warnings=append(append([]string{},r.Warnings...),ar.Warnings...);combined.Constraints=append(append([]string{},r.Constraints...),ar.Constraints...);if ac!=0||!ar.OK{combined.OK=false;combined.Error=ar.Error;return true,c.render(combined,ac,o.JSON)};return true,c.render(combined,0,o.JSON)}
 		return true,c.render(r,code,o.JSON)
 	case "status":r,code:=c.Workflow.Status(ctx,wo);return true,c.render(r,code,o.JSON)
-	case "new":r,code:=c.Workflow.NewIssue(ctx,app.NewIssueOptions{WorkflowOptions:wo,DryRun:o.DryRun,OperationID:o.OperationID,Title:o.Title,Goal:o.Goal,Scope:o.ScopeItems,OutOfScope:o.OutOfScope,Constraints:o.Constraints,Acceptance:o.Acceptance,Validation:o.Validation,Dependencies:o.Dependencies,ContractID:o.ContractID});return true,c.render(r,code,o.JSON)
+	case "task status":r,code:=c.Workflow.Status(ctx,wo);if r.OK {rep:=r.Data.(app.WorkflowReport);r.Command="task status";r.CanonicalCommand="task status";r.Data=rep.TaskProgress};return true,c.render(r,code,o.JSON)
+	case "new":r,code:=c.Workflow.NewIssue(ctx,app.NewIssueOptions{WorkflowOptions:wo,DryRun:o.DryRun,OperationID:o.OperationID,Title:o.Title,Goal:o.Goal,Scope:o.ScopeItems,OutOfScope:o.OutOfScope,Constraints:o.Constraints,Acceptance:o.Acceptance,Tasks:o.Tasks,Validation:o.Validation,Dependencies:o.Dependencies,ContractID:o.ContractID});return true,c.render(r,code,o.JSON)
 	default:if strings.HasPrefix(command,"adapter "){return true,c.render(result.Failure(command,"INVALID_INVOCATION","unsupported adapter action",nil,nil),result.ExitInvalid,o.JSON)};return false,0
 	}
 }
