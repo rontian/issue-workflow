@@ -105,3 +105,7 @@ go build ./cmd/iw
 ```
 
 Repository split work is tracked in Issue #1.
+
+### Multiple named external waiting conditions
+
+Use `iw wait <issue> --reason 'upstream dependency' --next 'recheck' --condition ci=waiting:pending --condition owner=waiting:pending`. The next `iw recheck <issue> --condition ci=resolved:build-passed --condition owner=waiting:still-pending --json` must report **every** condition. The Core keeps `WAITING` while any remain unresolved; a blind `--resolved` is rejected for named waits. Legacy single-reason waits retain their old CLI behavior.
