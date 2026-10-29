@@ -6,7 +6,7 @@
 
 | 原有能力 | 当前 Core | 缺口/归属 | 验收条件 |
 | --- | --- | --- | --- |
-| 九态 lifecycle、暂停、等待、延期、阻塞 | v2 lifecycle / events | wait 需要多项外部条件模型 | 多条件 recheck 不允许简单 `--resolved` 越权跳过 |
+| 九态 lifecycle、暂停、等待、延期、阻塞 | v2 lifecycle / events + 本 PR 命名 external_wait 条件 | 多条件已支持全量 recheck；仍需真实 GitHub 黑盒、和 Settlement 的衔接 | 多条件 recheck 不允许简单 `--resolved` 越权跳过 |
 | Task Contract + 计划 Txx/checklist 同步 | v1 contract + cross-Issue `tasks/next` | **Core 缺失 Issue 内稳定 task/phase/current/next 状态与严格推进门禁** | 最后未完成 Txx 不允许 complete/defer；checkpoint/context 显示当前任务 |
 | Settlement 逐项 decision + accepted risk | 无与 `.pi` 等价的结构化 item/fact/disposition，只有 validation evidence | **Core 缺失 settlement engine**，交互收集属 Host | 仅 owner-decidable manual/real-resource/acceptance 可 accepted risk；永不伪造 pass；HEAD 变化失效；defer 清理当前 segment 决定 |
 | defer release | 目前只有事件迁移与原因/下一步；本 PR 增加 Git 发布和 review guard | 仍缺 settled current-segment/task/settlement gate | 不能凭 `--reason` 认定工作结束；Issue 保持 OPEN |
@@ -20,7 +20,8 @@
 
 - validation 记录在检查 current HEAD 时不得因 `observed_head` 缺失而被当作有效 PASS；
 - 有过 passed review 时，若 HEAD 已变化，则 completion 不再允许沿用旧 review；
-- defer 前检查 worktree clean、没有 Git drift、review 无遗留问题、项目 review policy、确切 published remote HEAD。
+- defer 前检查 worktree clean、没有 Git drift、review 无遗留问题、项目 review policy、确切 published remote HEAD；
+- `wait/recheck --condition ID=waiting|resolved[:summary]` 把多个等待条件作为 event evidence 持久化，recheck 缺少任何已登记的 ID 或盲用 `--resolved` 均 fail closed。
 
 这些防护不能证明 `defer` 已达到 `.pi` 的完整 Settlement readiness；**不能用它们作为启动 Codex v2 正式适配的依据**。未完成项仍须由 `issue-workflow#3` 追踪并在真实仓黑盒验收后关闭。
 
