@@ -41,6 +41,7 @@ type WorkflowReport struct {
 	ContractChanged bool `json:"contract_changed"`
 	Recovery RecoveryContext `json:"recovery"`
 	TaskProgress domain.TaskProgress `json:"task_progress"`
+	Settlement domain.SettlementProjection `json:"settlement"`
 }
 
 type WorkflowService struct { Runner ports.Runner; Git ports.GitPort; GitHub ports.WorkflowGitHubPort }
@@ -72,12 +73,13 @@ func (s *WorkflowService) read(ctx context.Context, command string, opts Workflo
 	for _, comment := range comments { e, eerr := domain.ParseWorkflowEventComment(comment); if eerr != nil { return workflowFail(command, workflowErrorCode(eerr,"PROTOCOL_ERROR"), fmt.Sprintf("comment %d: %v", comment.ID,eerr), map[string]any{"comment_id":comment.ID}, nil) }; if e != nil { events=append(events,*e) } }
 	agg, err := domain.ReplayWorkflow(repo.FullName(), opts.Issue, events); if err != nil { return workflowFail(command, workflowErrorCode(err,"PROTOCOL_ERROR"), err.Error(), nil, nil) }
 	taskProgress,err:=domain.ReplayTaskProgress(contract,events);if err!=nil{return workflowFail(command,workflowErrorCode(err,"PROTOCOL_ERROR"),err.Error(),nil,nil)}
+	settlement,err:=domain.ReplaySettlement(events);if err!=nil{return workflowFail(command,workflowErrorCode(err,"PROTOCOL_ERROR"),err.Error(),nil,nil)}
 	currentGit, err := s.Git.Snapshot(ctx, root); if err != nil { return workflowFail(command, "ENVIRONMENT_INVALID", "无法读取当前 Git snapshot", nil, nil) }
 	drift := domain.CompareGitSnapshot(agg.LatestGit,currentGit)
 	contractChanged := len(events)>0 && agg.AcceptedContractDigest!="" && contract.Digest!=agg.AcceptedContractDigest
 	recovery := buildRecovery(agg,drift,contractChanged)
 	protocolSource := "none"; if agg.Protocol=="v1" { protocolSource=domain.WorkflowEventSchemaV1 }; if agg.Protocol=="v2" { protocolSource=domain.WorkflowEventSchemaV2 }
-	report := WorkflowReport{Repository:repo,Issue:issue,Contract:contract,Aggregate:agg,Lifecycle:agg.Lifecycle,Phase:agg.Phase,ProtocolSource:protocolSource,CurrentGit:currentGit,GitDrift:drift,ContractChanged:contractChanged,Recovery:recovery,TaskProgress:taskProgress}
+	report := WorkflowReport{Repository:repo,Issue:issue,Contract:contract,Aggregate:agg,Lifecycle:agg.Lifecycle,Phase:agg.Phase,ProtocolSource:protocolSource,CurrentGit:currentGit,GitDrift:drift,ContractChanged:contractChanged,Recovery:recovery,TaskProgress:taskProgress,Settlement:settlement}
 	r := result.Success(command,report); r.Repository=repo.FullName(); n:=opts.Issue; r.Issue=&n; r.State=string(agg.State); r.Lifecycle=string(agg.Lifecycle); r.NextActions=append([]string{},recovery.SuggestedActions...)
 	if contractChanged { r.Warnings=append(r.Warnings,"CONTRACT_CHANGED"); r.Constraints=append(r.Constraints,"Issue Body digest 与已接受 contract 不一致；workflow mutation 必须等待 scope reconciliation") }
 	if drift.Changed { r.Warnings=append(r.Warnings,"STALE_GIT_STATE") }
