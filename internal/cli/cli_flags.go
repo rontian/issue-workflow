@@ -8,7 +8,7 @@ import(
 
 func flagsBeforePositionals(args []string)([]string,error){
 	flags:=[]string{};pos:=[]string{}
-	value:=map[string]bool{"--repo":true,"--remote":true,"--host":true,"--adapter":true,"--issue":true,"--operation-id":true,"--run-id":true,"--summary":true,"--next":true,"--reason":true,"--proposal-event":true,"--title":true,"--goal":true,"--contract-id":true,"--pr":true,"--scope":true,"--out-of-scope":true,"--acceptance":true,"--constraint":true,"--validation":true,"--dependency":true,"--warning":true,"--finding":true,"--condition":true,"--task-id":true,"--task":true}
+	value:=map[string]bool{"--repo":true,"--remote":true,"--host":true,"--adapter":true,"--issue":true,"--operation-id":true,"--run-id":true,"--summary":true,"--next":true,"--reason":true,"--proposal-event":true,"--title":true,"--goal":true,"--contract-id":true,"--pr":true,"--scope":true,"--out-of-scope":true,"--acceptance":true,"--constraint":true,"--validation":true,"--dependency":true,"--warning":true,"--finding":true,"--condition":true,"--task-id":true,"--task":true,"--item-id":true,"--kind":true,"--fact":true,"--disposition":true,"--target":true}
 	for i:=0;i<len(args);i++{a:=args[i];if strings.HasPrefix(a,"--"){flags=append(flags,a);name:=a;if j:=strings.IndexByte(a,'=');j>=0{name=a[:j]};if value[name]&&!strings.Contains(a,"="){if i+1>=len(args){return nil,fmt.Errorf("flag %s requires a value",name)};i++;flags=append(flags,args[i])}}else{pos=append(pos,a)}}
 	return append(flags,pos...),nil
 }
@@ -34,6 +34,12 @@ func registerFlags(fs *flag.FlagSet,o *options){
 	fs.StringVar(&o.Goal,"goal",o.Goal,"Task Contract goal")
 	fs.StringVar(&o.ContractID,"contract-id",o.ContractID,"explicit contract id")
 	fs.StringVar(&o.TaskID,"task-id",o.TaskID,"stable Txx task ID for task complete")
+	fs.StringVar(&o.SettlementItemID,"item-id",o.SettlementItemID,"settlement contract item ID")
+	fs.StringVar(&o.SettlementKind,"kind",o.SettlementKind,"settlement item kind")
+	fs.StringVar(&o.SettlementFact,"fact",o.SettlementFact,"factual status, not an owner risk decision")
+	fs.StringVar(&o.SettlementDisposition,"disposition",o.SettlementDisposition,"settlement disposition")
+	fs.StringVar(&o.SettlementTarget,"target",o.SettlementTarget,"complete or defer")
+	fs.BoolVar(&o.OwnerConfirmed,"owner-confirmed",o.OwnerConfirmed,"explicitly confirmed by the owner; never infer from agent text")
 	fs.BoolVar(&o.Pushed,"pushed",o.Pushed,"record commit as pushed in delivery evidence")
 	fs.IntVar(&o.PR,"pr",o.PR,"record pull request number in delivery evidence")
 	fs.BoolVar(&o.Portable,"portable",o.Portable,"require cross-machine retrievable handoff")
