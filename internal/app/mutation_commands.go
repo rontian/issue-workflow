@@ -74,6 +74,7 @@ func (s *WorkflowService) mutate(ctx context.Context, command string, t domain.W
 	trial := append(append([]domain.WorkflowEvent(nil), rep.Aggregate.Events...), ev)
 	if _, err := domain.ReplayWorkflow(rep.Repository.FullName(), rep.Issue.Number, trial); err != nil { return mutationFailFrom(command, workflowErrorCode(err, "PROTOCOL_ERROR"), err.Error(), rep, rr) }
 	if t == domain.EventComplete { if err := completionGate(rep, o); err != nil { return mutationFailFrom(command, workflowErrorCode(err, "VALIDATION_FAILED"), err.Error(), rep, rr) } }
+	if t == domain.EventDefer { if err := deferGate(ctx, s, rep, o); err != nil { return mutationFailFrom(command, workflowErrorCode(err, "TRANSITION_BLOCKED"), err.Error(), rep, rr) } }
 	comment, err := domain.RenderWorkflowEvent(ev); if err != nil { return mutationFailFrom(command, "INTERNAL_ERROR", err.Error(), rep, rr) }
 	preview := MutationPreview{Event: ev, Comment: comment, OperationID: op, DryRun: o.DryRun}
 	if o.DryRun {
