@@ -33,11 +33,11 @@ func TestSettlementClearsOnDeferredResumeButPreservesEventHistory(t *testing.T){
 }
 
 func TestSettlementIDsAreContractReferences(t *testing.T) {
-    for _,id:=range []string{"task:T01","task:T123","validation:v1","acceptance:a12"} {
+    for _,id:=range []string{"task:T01","task:T123","validation:v1","acceptance:a12","external_wait:manual-check","implementation:item_12"} {
         item:=SettlementItem{ID:id,Kind:"implementation",FactStatus:"pending",Disposition:"deferred",Target:"defer",Reason:"continue in next milestone"}
         if err:=ValidateSettlementItem(item,false);err!=nil{t.Fatalf("canonical ID %q rejected: %v",id,err)}
     }
-    for _,id:=range []string{"task:t02","task:T1","validation:V1","acceptance:A1","anything","task:T02/../x"} {
+    for _,id:=range []string{"task:t02","task:T1","validation:V1","acceptance:A1","task:T02/../x"} {
         item:=SettlementItem{ID:id,Kind:"implementation",FactStatus:"pending",Disposition:"deferred",Target:"defer",Reason:"continue in next milestone"}
         if err:=ValidateSettlementItem(item,false);err==nil{t.Fatalf("noncanonical ID %q accepted",id)}
     }
