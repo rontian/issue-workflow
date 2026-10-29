@@ -47,7 +47,9 @@ Lifecycle:
   iw complete <issue> --summary S [--validation ID=status[:summary]] [--pushed] [--pr N]
   iw final <issue> --summary S ...        # compatibility alias for complete
   iw cancel <issue> --reason R
-  iw reopen <issue> --reason R
+  iw reopen <issue>
+  iw issue close <issue> [--dry-run]
+  iw issue reopen <issue> [--dry-run] --reason R
 
 Adapter lifecycle:
   iw adapter list
