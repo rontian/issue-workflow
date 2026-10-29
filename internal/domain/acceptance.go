@@ -1,6 +1,9 @@
 package domain
 
-import "strings"
+import (
+    "fmt"
+    "strings"
+)
 
 type AcceptanceRequirement struct {
     ID string `json:"id"`
@@ -19,18 +22,9 @@ func AcceptanceRequirements(c TaskContract)[]AcceptanceRequirement{
         line=strings.TrimSpace(strings.TrimPrefix(line,"- [x]"))
         line=strings.TrimSpace(strings.TrimPrefix(line,"-"))
         if line==""{continue}
-        n:=len(out)+1
-        id:="a"+itoa(n)
+        id:=fmt.Sprintf("a%d",len(out)+1)
         low:=strings.ToLower(line)
         out=append(out,AcceptanceRequirement{ID:id,Text:line,OwnerDecidable:strings.HasPrefix(low,"owner:")})
     }
     return out
-}
-func itoa(n int)string{
-    // Requirement indexes are deterministic and only used as legacy v1
-    // contract-local identifiers, never as event IDs.
-    if n<10{return string(rune('0'+n))}
-    digits:=""
-    for n>0{digits=string(rune('0'+n%10))+digits;n/=10}
-    return digits
 }
