@@ -30,7 +30,7 @@ Lifecycle:
   iw resume <issue>
   iw pause <issue> --reason R
   iw wait <issue> --reason R --next N
-  iw recheck <issue> [--resolved] [--reason R]
+  iw recheck <issue> [--condition ID=waiting[:note]] [--condition ID=resolved:evidence] [--reason R] [--resolved for legacy waits]
   iw defer <issue> --reason R --next N
   iw checkpoint <issue> --summary S --next N [--validation ID=status[:summary]]
   iw handoff <issue> --summary S --next N [--warning W] [--portable]
