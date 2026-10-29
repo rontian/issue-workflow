@@ -137,11 +137,26 @@ func (s *AdapterService) Status(ctx context.Context,id string)(result.CommandRes
 	e,m,_,cleanup,err:=s.load(ctx,id);if cleanup!=nil{defer cleanup()};if err!=nil{return adapterFailure("adapter status",err)}
 	root,err:=s.installRoot(e);if err!=nil{return adapterFailure("adapter status",err)}
 	st:=AdapterStatus{Schema:AdapterStatusSchema,ID:id,Repository:e.Repository,RegistryStatus:e.Status,Compatible:adapterCompatible(m),Manifest:&m,Targets:[]string{}}
-	for _,a:=range m.Assets{target,terr:=adapterTarget(root,e,a);if terr!=nil{return adapterFailure("adapter status",terr)};st.Targets=append(st.Targets,target);info,serr:=os.Stat(target);if serr==nil&&info.IsDir(){st.Installed=true;marker,ok:=readManagedMarker(target);st.Managed=st.Managed||ok&&marker.AdapterID==id&&marker.Repository==e.Repository&&managedAssetUnmodified(target,marker)}}
-	r:=result.Success("adapter status",st);if !st.Compatible{r.Warnings=append(r.Warnings,"ADAPTER_INCOMPATIBLE");r.Constraints=append(r.Constraints,"adapter manifest does not declare the current iw v2 schemas")};return r,result.ExitOK
+	allManaged:=true
+	for _,a:=range m.Assets{
+		target,terr:=adapterTarget(root,e,a);if terr!=nil{return adapterFailure("adapter status",terr)}
+		st.Targets=append(st.Targets,target)
+		info,serr:=os.Lstat(target)
+		if os.IsNotExist(serr){allManaged=false;continue}
+		if serr!=nil{return adapterFailure("adapter status",fmt.Errorf("ADAPTER_INSTALL_FAILED: inspect target: %w",serr))}
+		st.Installed=true
+		if !info.IsDir(){allManaged=false;continue}
+		marker,ok:=readManagedMarker(target)
+		if !ok||marker.AdapterID!=id||marker.Repository!=e.Repository||!managedAssetUnmodified(target,marker){allManaged=false}
+	}
+	st.Managed=st.Installed&&allManaged
+	r:=result.Success("adapter status",st)
+	if !st.Compatible{r.Warnings=append(r.Warnings,"ADAPTER_INCOMPATIBLE");r.Constraints=append(r.Constraints,"adapter manifest does not declare the current iw v2 schemas")}
+	if st.Installed&&!st.Managed{r.Warnings=append(r.Warnings,"ADAPTER_UNMANAGED");r.Constraints=append(r.Constraints,"installed adapter targets include unmanaged, missing, or locally modified content")}
+	return r,result.ExitOK
 }
 
-func (s *AdapterService) Doctor(ctx context.Context,id string)(result.CommandResult,int){r,code:=s.Status(ctx,id);if !r.OK{return r,code};st:=r.Data.(AdapterStatus);r.Command="adapter doctor";r.CanonicalCommand="adapter doctor";if !st.Compatible{r.OK=false;r.Error=&result.Error{Code:"ADAPTER_INCOMPATIBLE",Message:"adapter is not compatible with current iw protocol"};return r,result.ExitProtocol};return r,result.ExitOK}
+func (s *AdapterService) Doctor(ctx context.Context,id string)(result.CommandResult,int){r,code:=s.Status(ctx,id);if !r.OK{return r,code};st:=r.Data.(AdapterStatus);r.Command="adapter doctor";r.CanonicalCommand="adapter doctor";if !st.Compatible{r.OK=false;r.Error=&result.Error{Code:"ADAPTER_INCOMPATIBLE",Message:"adapter is not compatible with current iw protocol"};return r,result.ExitProtocol};if st.Installed&&!st.Managed{r.OK=false;r.Error=&result.Error{Code:"ADAPTER_UNMANAGED",Message:"installed adapter content has changed or cannot be verified"};return r,result.ExitConflict};return r,result.ExitOK}
 
 func (s *AdapterService) Install(ctx context.Context,id string,dry bool)(result.CommandResult,int){return s.apply(ctx,"adapter install",id,dry,false)}
 func (s *AdapterService) Update(ctx context.Context,id string,dry bool)(result.CommandResult,int){return s.apply(ctx,"adapter update",id,dry,true)}
