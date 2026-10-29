@@ -40,56 +40,54 @@ Go Core         = deterministic workflow rules
 iw CLI          = stable human / agent interface
 ```
 
-Current wire schemas remain v1 during the repository split:
+Current implemented wire schemas on `main`:
 
-- `iw.command-result/v1`
-- `iw.task-contract/v1`
-- `iw.workflow-event/v1`
+- `iw.command-result/v2` with `iw.machine-semantics/v1`
+- `iw.context/v1` and `iw.capabilities/v1`
+- `iw.task-contract/v1` (read compatibility)
+- `iw.workflow-event/v2` (v1 event reader + explicit `iw migrate`)
+- `iw.adapter/v1` for official Host Adapter manifests
 
-## Current commands
+## CLI commands (implemented, not yet fully black-box accepted)
 
 ```text
-iw version
-iw doctor [--issue N]
-iw init
+iw version --json
+iw capabilities --json
+iw doctor [--global] [--issue N] [--adapter codex] --json
+iw init [--interactive] [--dry-run] [--adapter codex]
+iw project status --json
+iw tasks --json
+iw next --json
+iw context <issue> --json
+iw status <issue> --json
 
-iw new
-iw status <issue>
-iw start <issue>
-iw resume <issue> [--dry-run]
-iw checkpoint <issue>
-iw handoff <issue>
-iw block <issue>
+iw new --title T --goal G --scope S --out-of-scope O --acceptance A
+iw migrate <issue>
+iw start|resume|pause|wait|recheck|defer <issue>
+iw checkpoint|handoff|restore <issue>
+iw block|review|fix|complete|cancel|reopen <issue>
 iw scope propose|accept|reject <issue>
-iw review <issue>
-iw fix <issue>
-iw final <issue>
+
+iw adapter list
+iw adapter status|doctor|install|update|remove codex
 ```
 
-All workflow mutations support `--dry-run`. Machine callers use `--json`.
+Use `iw <command> --help` for the complete flag contract. Mutations support `--dry-run` and `--operation-id`. Restore is plan-only unless `--apply` is given. Portable handoff requires a clean, published exact HEAD.
 
 ## Host adapters
 
-Codex, Pi and future Agent integrations are separate public adapter projects. They must depend only on stable `iw` CLI/schema contracts and must not duplicate canonical workflow state logic.
-
-The future generic adapter lifecycle is owned by `iw` itself:
+The Core owns adapter registry/manifest validation and managed installation. It does not contain Codex/Pi-specific prompt, Todo or Goal implementations.
 
 ```text
 iw adapter list
-iw adapter install <id>
-iw adapter update <id>
-iw adapter doctor <id>
-iw adapter remove <id>
+iw adapter doctor codex
+iw adapter install codex --dry-run
+iw adapter install codex
 ```
 
-`iw init --adapter <id>` may provide a convenience bootstrap path. Existing `--host` remains reserved for GitHub host override and will not be repurposed for Agent selection.
+**Current compatibility warning:** `rontian/codex-workflow` on its older `main` still requires `iw.command-result/v1` and `iw.workflow-event/v1`. The Core correctly rejects that manifest with `ADAPTER_INCOMPATIBLE`; do not work around the gate or install an incompatible Skill manually.
 
-Official adapters currently planned:
-
-- `rontian/codex-workflow`
-- `rontian/pi-workflow`
-
-Adapter management is intentionally **not implemented in the bootstrap split**; the Core is completed and validated first.
+**Delivery status:** unit/race/vet/build/install CI for Core v2 is green, but full real-GitHub black-box acceptance, fine-grained Txx task transition, per-item Settlement, and multi-item waiting semantics still need work. Core #3 remains the acceptance contract. See [Pi workflow parity audit](docs/pi-issue-parity-audit.md).
 
 ## Public / local boundary
 
