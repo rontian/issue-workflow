@@ -22,9 +22,9 @@ func TestNormalizeMachineClosedIssueRequiresExplicitGitHubReopen(t *testing.T){
 	r:=Success("status",nil);r.Lifecycle="READY";r.State="READY";n:=7;r.Issue=&n;r.Warnings=[]string{"GITHUB_ISSUE_CLOSED"};NormalizeMachine(&r)
 	foundConstraint:=false;for _,c:=range r.Machine.Constraints{if c.Code=="GITHUB_ISSUE_CLOSED"&&c.Blocking{foundConstraint=true}}
 	if !foundConstraint{t.Fatalf("constraints=%#v",r.Machine.Constraints)}
-	foundAction:=false;for _,a:=range r.Machine.NextActions{if a.ID=="reopen_github_issue"&&a.Command=="gh issue reopen"&&a.ReasonCode=="GITHUB_ISSUE_CLOSED"&&a.Issue!=nil&&*a.Issue==7{foundAction=true}}
+	foundAction:=false;for _,a:=range r.Machine.NextActions{if a.ID=="reopen_github_issue"&&a.Command=="issue reopen"&&a.ReasonCode=="GITHUB_ISSUE_CLOSED"&&a.Issue!=nil&&*a.Issue==7{foundAction=true}}
 	if !foundAction{t.Fatalf("actions=%#v",r.Machine.NextActions)}
-	if len(r.Machine.AllowedActions)!=2||r.Machine.AllowedActions[0]!="context"||r.Machine.AllowedActions[1]!="status"{t.Fatalf("allowed=%v",r.Machine.AllowedActions)}
+	if len(r.Machine.AllowedActions)!=3||r.Machine.AllowedActions[0]!="context"||r.Machine.AllowedActions[1]!="status"||r.Machine.AllowedActions[2]!="issue reopen"{t.Fatalf("allowed=%v",r.Machine.AllowedActions)}
 }
 
 
@@ -54,7 +54,7 @@ func TestNormalizeMachineContractDriftPermitsOnlyReconciliation(t *testing.T) {
 	r.Lifecycle="IN_PROGRESS"
 	r.Warnings=[]string{"CONTRACT_CHANGED"}
 	NormalizeMachine(&r)
-	want:=[]string{"context","status","scope"}
+	want:=[]string{"context","status","scope accept"}
 	if len(r.Machine.AllowedActions)!=len(want) { t.Fatalf("allowed=%v",r.Machine.AllowedActions) }
 	for i,a:=range want { if r.Machine.AllowedActions[i]!=a { t.Fatalf("allowed=%v",r.Machine.AllowedActions) } }
 	if len(r.Machine.NextActions)==0||r.Machine.NextActions[0].ID!="scope_reconcile" {
