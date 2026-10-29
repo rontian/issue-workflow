@@ -2,6 +2,7 @@ package ghcli
 
 import (
 	"context"
+	"errors"
 	"io"
 	"reflect"
 	"testing"
@@ -81,3 +82,64 @@ func (r *workflowSequenceRunner) Run(_ context.Context, c ports.Command) (ports.
 	return ports.ProcessResult{Stdout: out}, nil
 }
 func (r *workflowSequenceRunner) RunInteractive(context.Context, ports.Command, io.Reader, io.Writer, io.Writer) error { return nil }
+
+type flakyCommentRunner struct {
+	calls int
+	failUntil int
+	out []byte
+}
+func (r *flakyCommentRunner) LookPath(string) (string, error) { return "/bin/gh", nil }
+func (r *flakyCommentRunner) Run(_ context.Context, _ ports.Command) (ports.ProcessResult, error) {
+	r.calls++
+	if r.calls <= r.failUntil { return ports.ProcessResult{}, errors.New("temporary transport failure") }
+	return ports.ProcessResult{Stdout: r.out}, nil
+}
+func (r *flakyCommentRunner) RunInteractive(context.Context, ports.Command, io.Reader, io.Writer, io.Writer) error { return nil }
+
+func TestIssueCommentsRetriesOnlyTransportReadFailure(t *testing.T) {
+	runner := &flakyCommentRunner{failUntil: 1, out: []byte(`[[{"id":42,"body":"ok"}]]`)}
+	c := New(runner, nil, nil, nil)
+	comments, err := c.IssueComments(context.Background(), domain.RepositoryIdentity{Host: "github.com", Owner: "o", Repo: "r"}, 7)
+	if err != nil { t.Fatal(err) }
+	if runner.calls != 2 || len(comments) != 1 || comments[0].ID != 42 {
+		t.Fatalf("read-only retry: calls=%d comments=%#v", runner.calls, comments)
+	}
+}
+
+func TestIssueCommentsPermanentFailureRemainsClosed(t *testing.T) {
+	runner := &flakyCommentRunner{failUntil: 9}
+	c := New(runner, nil, nil, nil)
+	comments, err := c.IssueComments(context.Background(), domain.RepositoryIdentity{Owner: "o", Repo: "r"}, 7)
+	if err == nil || comments != nil || runner.calls != 2 {
+		t.Fatalf("must fail closed after bounded retry: calls=%d comments=%#v err=%v", runner.calls, comments, err)
+	}
+}
+
+func TestIssueCommentsMalformedPageDoesNotRetry(t *testing.T) {
+	runner := &flakyCommentRunner{out: []byte(`{"not":"pages"}`)}
+	c := New(runner, nil, nil, nil)
+	_, err := c.IssueComments(context.Background(), domain.RepositoryIdentity{Owner: "o", Repo: "r"}, 7)
+	if err == nil || runner.calls != 1 {
+		t.Fatalf("invalid page structure must fail without retry: calls=%d err=%v", runner.calls, err)
+	}
+}
+
+func TestAppendIssueCommentFailureIsNotRetried(t *testing.T) {
+	runner := &flakyCommentRunner{failUntil: 9}
+	c := New(runner, nil, nil, nil)
+	err := c.AppendIssueComment(context.Background(), domain.RepositoryIdentity{Owner: "o", Repo: "r"}, 7, "potentially written body")
+	if err == nil || runner.calls != 1 {
+		t.Fatalf("write outcome unknown: never retry append: calls=%d err=%v", runner.calls, err)
+	}
+}
+
+func TestIssueCommentsCancelledContextDoesNotRetry(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	runner := &flakyCommentRunner{failUntil: 9}
+	c := New(runner, nil, nil, nil)
+	_, err := c.IssueComments(ctx, domain.RepositoryIdentity{Owner: "o", Repo: "r"}, 7)
+	if !errors.Is(err, context.Canceled) || runner.calls != 0 {
+		t.Fatalf("cancelled read must not call gh: calls=%d err=%v", runner.calls, err)
+	}
+}
