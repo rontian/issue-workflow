@@ -90,7 +90,7 @@ iw adapter install codex
 
 **Current compatibility warning:** `rontian/codex-workflow` on its older `main` still requires `iw.command-result/v1` and `iw.workflow-event/v1`. The Core correctly rejects that manifest with `ADAPTER_INCOMPATIBLE`; do not work around the gate or install an incompatible Skill manually.
 
-**Delivery status:** the original Core v2 main had a green CI on 2026-09-17; this **candidate branch has not been verified on macOS** because hosted GitHub Actions are unavailable. Core #3 remains open. Baseline but full real-GitHub black-box acceptance, fine-grained Txx task transition, per-item Settlement, and multi-item waiting semantics still need work. Core #3 remains the acceptance contract. See [Pi workflow parity audit](docs/pi-issue-parity-audit.md) and [candidate v2 protocol](docs/protocol-v2-candidate.md).
+**Delivery status (2026-10-29):** the user ran macOS arm64 / Go 1.26.6 verification on candidate commit `e8d0b80`, including the `rontian/pi-test#5` positive real-GitHub black box: **Fail count: 0**, 15 append-only v2 events, no repeated operation IDs. This is an **older-HEAD, selected-path result**, not release acceptance. Subsequent machine-safety fixes and an isolated negative test suite have **not** yet been verified on macOS. Core #3 and Draft PR #5 remain open; no Adapter upgrades or merge are authorized. See the [Acceptance/Evidence/Gap Matrix](docs/core-v2-acceptance-matrix.md), [Pi workflow parity audit](docs/pi-issue-parity-audit.md) and [candidate v2 protocol](docs/protocol-v2-candidate.md).
 
 ## macOS local verification (no GitHub Actions)
 
@@ -102,7 +102,19 @@ git switch fix/core-pi-parity-safety-gates
 bash scripts/verify-macos.sh
 ```
 
-This runs tests/race/vet/build/install and protocol smoke locally; **no GitHub writes**. Reports go to `~/Library/Logs/iw-verification/<UTC-stamp>-<pid>/` and are kept for inspection. After local PASS, opt into the isolated real GitHub test:
+This runs tests/race/vet/build/install and protocol smoke locally; **no GitHub writes**. For new isolated negative-path checks (default local-only), also run:
+
+```bash
+bash scripts/verify-negative-macos.sh
+```
+
+The negative suite checks contract/Git/HEAD drift, dirty worktree, idempotency conflict, stale review/validation, restore mismatch, unknown event schema and zero newly appended Events on expected rejection. **After** the local checks succeed, explicitly opt in to live negative acceptance on **new** `[iw-negative]` Issues and a uniquely named test branch:
+
+```bash
+IW_TEST_CONFIRM=YES bash scripts/verify-negative-macos.sh --live
+```
+
+It never reuses or alters the previous `rontian/pi-test#5` evidence. Intentionally malformed event metadata is injected only into a second, freshly created sacrificial test Issue. The script does not retry ambiguous Issue creation and does not silently clean up on failure. The results are pending a user-run macOS receipt. Reports go to `~/Library/Logs/iw-verification/<UTC-stamp>-<pid>/` and are kept for inspection. After local PASS, opt into the isolated real GitHub test:
 
 ```bash
 IW_TEST_CONFIRM=YES bash scripts/verify-macos.sh --live
