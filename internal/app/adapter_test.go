@@ -69,3 +69,48 @@ func TestAdapterUpdateDoesNotDeleteUnrelatedBackupSibling(t *testing.T) {
 		t.Fatalf("updated managed content missing: %q %v",got,err)
 	}
 }
+
+
+func TestAdapterRejectsLocallyModifiedManagedTree(t *testing.T) {
+	for _,kind:=range []string{"added","edited","deleted","missing-inventory"} {
+		t.Run(kind,func(t *testing.T){
+			src,reg:=adapterFixture(t,true)
+			root:=t.TempDir()
+			s:=&AdapterService{Source:localAdapterSource{src},Registry:reg,Getenv:func(string)string{return root}}
+			if r,c:=s.Install(context.Background(),"test",false);c!=0||!r.OK{t.Fatalf("install: %d %#v",c,r)}
+			target:=filepath.Join(root,"skills","workflow")
+			skill:=filepath.Join(target,"SKILL.md")
+			switch kind {
+			case "added":
+				if err:=os.WriteFile(filepath.Join(target,"user-note.txt"),[]byte("local data"),0644);err!=nil{t.Fatal(err)}
+			case "edited":
+				if err:=os.WriteFile(skill,[]byte("local edits"),0644);err!=nil{t.Fatal(err)}
+			case "deleted":
+				if err:=os.Remove(skill);err!=nil{t.Fatal(err)}
+			case "missing-inventory":
+				marker,ok:=readManagedMarker(target);if !ok{t.Fatal("marker missing")}
+				marker.ManagedFiles=nil
+				raw,err:=json.Marshal(marker);if err!=nil{t.Fatal(err)}
+				if err:=os.WriteFile(filepath.Join(target,".iw-adapter-install.json"),raw,0644);err!=nil{t.Fatal(err)}
+			}
+			for _,operation:=range []struct {
+				name string
+				run func(context.Context,string,bool)(result.CommandResult,int)
+			}{
+				{"update",s.Update},
+				{"remove",s.Remove},
+			}{
+				r,c:=operation.run(context.Background(),"test",false)
+				if c!=result.ExitConflict||r.Error==nil||r.Error.Code!="ADAPTER_UNMANAGED"{
+					t.Fatalf("%s must refuse locally modified/legacy target: %d %#v",operation.name,c,r)
+				}
+			}
+			if _,err:=os.Stat(target);err!=nil{t.Fatalf("refused operation removed target: %v",err)}
+			if kind=="added" {
+				if got,err:=os.ReadFile(filepath.Join(target,"user-note.txt"));err!=nil||string(got)!="local data"{
+					t.Fatalf("locally added content changed: %q %v",got,err)
+				}
+			}
+		})
+	}
+}
