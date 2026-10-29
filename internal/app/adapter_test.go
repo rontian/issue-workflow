@@ -42,3 +42,30 @@ func TestAdapterRejectsIncompatibleManifest(t *testing.T){
 func TestAdapterManifestRejectsTraversal(t *testing.T){
 	src,reg:=adapterFixture(t,true);raw,err:=os.ReadFile(filepath.Join(src,"iw-adapter.json"));if err!=nil{t.Fatal(err)};var m AdapterManifest;if json.Unmarshal(raw,&m)!=nil{t.Fatal("decode")};m.Assets[0].Source="../secret";raw,_=json.Marshal(m);if os.WriteFile(filepath.Join(src,"iw-adapter.json"),raw,0644)!=nil{t.Fatal("write")};s:=&AdapterService{Source:localAdapterSource{src},Registry:reg,Getenv:func(string)string{return t.TempDir()}};r,c:=s.Install(context.Background(),"test",false);if c!=result.ExitProtocol||r.Error==nil||r.Error.Code!="ADAPTER_MANIFEST_INVALID"{t.Fatalf("%d %#v",c,r)}
 }
+
+
+func TestAdapterUpdateDoesNotDeleteUnrelatedBackupSibling(t *testing.T) {
+	src,reg:=adapterFixture(t,true)
+	root:=t.TempDir()
+	s:=&AdapterService{Source:localAdapterSource{src},Registry:reg,Getenv:func(string)string{return root}}
+	if r,c:=s.Install(context.Background(),"test",false);c!=0||!r.OK{
+		t.Fatalf("initial install: %d %#v",c,r)
+	}
+	target:=filepath.Join(root,"skills","workflow")
+	// This directory is NOT a managed adapter asset, even though its name
+	// matches the old implementation's fixed backup path.
+	unrelated:=target+".iw-backup"
+	if err:=os.MkdirAll(unrelated,0755);err!=nil{t.Fatal(err)}
+	sentinel:=filepath.Join(unrelated,"user-owned.txt")
+	if err:=os.WriteFile(sentinel,[]byte("must be preserved"),0644);err!=nil{t.Fatal(err)}
+	if err:=os.WriteFile(filepath.Join(src,"skill","SKILL.md"),[]byte("updated\n"),0644);err!=nil{t.Fatal(err)}
+	if r,c:=s.Update(context.Background(),"test",false);c!=0||!r.OK{
+		t.Fatalf("adapter update: %d %#v",c,r)
+	}
+	if got,err:=os.ReadFile(sentinel);err!=nil||string(got)!="must be preserved"{
+		t.Fatalf("unrelated user-owned sibling was changed: %q %v",got,err)
+	}
+	if got,err:=os.ReadFile(filepath.Join(target,"SKILL.md"));err!=nil||string(got)!="updated\n"{
+		t.Fatalf("updated managed content missing: %q %v",got,err)
+	}
+}
