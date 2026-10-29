@@ -220,13 +220,13 @@ func allowedActions(lifecycle, state string) []string {
 	case "IN_PROGRESS":
 		return []string{"resume", "checkpoint", "handoff", "task complete", "settle", "pause", "wait", "defer", "block", "scope propose", "scope accept", "scope reject", "review", "fix", "complete", "cancel"}
 	case "PAUSED":
-		return []string{"resume", "block", "cancel"}
+		return []string{"resume", "checkpoint", "handoff", "scope propose", "scope accept", "scope reject", "block", "cancel"}
 	case "WAITING":
-		return []string{"recheck", "settle", "complete", "block", "cancel"}
+		return []string{"recheck", "checkpoint", "handoff", "settle", "scope propose", "scope accept", "scope reject", "complete", "block", "cancel"}
 	case "DEFERRED":
-		return []string{"resume", "cancel"}
+		return []string{"resume", "checkpoint", "handoff", "scope propose", "scope accept", "scope reject", "cancel"}
 	case "BLOCKED":
-		return []string{"context", "resume", "scope", "cancel"}
+		return []string{"context", "resume", "checkpoint", "handoff", "scope propose", "scope accept", "scope reject", "cancel"}
 	case "COMPLETED", "CANCELLED":
 		return []string{"issue close", "reopen"}
 	default:
