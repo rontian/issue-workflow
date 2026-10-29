@@ -94,3 +94,13 @@ func (c *Client) Login(ctx context.Context, host string) error {
 	args := []string{"auth", "login"}; if host != "" { args = append(args, "--hostname", host) }
 	return c.runner.RunInteractive(ctx, ports.Command{Name: "gh", Args: args}, c.stdin, c.stdout, c.stderr)
 }
+
+func (c *Client) CloseIssue(ctx context.Context,repo domain.RepositoryIdentity,number int,reason string)error{
+    if reason!="completed"&&reason!="not planned"{return fmt.Errorf("unsupported GitHub close reason")}
+    _,err:=c.runWithEnv(ctx,repoEnv(repo),"issue","close",strconv.Itoa(number),"--repo",target(repo),"--reason",reason)
+    return err
+}
+func (c *Client) ReopenIssue(ctx context.Context,repo domain.RepositoryIdentity,number int)error{
+    _,err:=c.runWithEnv(ctx,repoEnv(repo),"issue","reopen",strconv.Itoa(number),"--repo",target(repo))
+    return err
+}
