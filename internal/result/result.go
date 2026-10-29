@@ -147,11 +147,21 @@ func NormalizeMachine(r *CommandResult) {
 	}
 	m.AllowedActions = allowedActions(r.Lifecycle, r.State)
 	issueClosed := warnSeen["GITHUB_ISSUE_CLOSED"] || (r.Error != nil && r.Error.Code == "GITHUB_ISSUE_CLOSED")
+	// Machine callers must not infer mutation permission from a v2 lifecycle
+	// projection while the persisted event chain is still v1. All v2 writes
+	// require an explicit migration anchor first.
+	migrationRequired := warnSeen["WORKFLOW_V1_COMPAT"] || (r.Error != nil && r.Error.Code == "MIGRATION_REQUIRED")
+	contractChanged := warnSeen["CONTRACT_CHANGED"] || (r.Error != nil && r.Error.Code == "CONTRACT_CHANGED")
 	if issueClosed {
 		m.AllowedActions = []string{"context", "status"}
-		if warnSeen["WORKFLOW_V1_COMPAT"] || (r.Error != nil && r.Error.Code == "MIGRATION_REQUIRED") {
+		if migrationRequired {
 			m.AllowedActions = append(m.AllowedActions, "migrate")
 		}
+	} else if migrationRequired {
+		m.AllowedActions = []string{"context", "status", "migrate"}
+	} else if contractChanged {
+		// A changed Issue Body is not an implicit Task Contract acceptance.
+		m.AllowedActions = []string{"context", "status", "scope"}
 	}
 	if len(m.NextActions) == 0 {
 		switch canonicalLifecycle(r.Lifecycle, r.State) {
@@ -208,7 +218,7 @@ func allowedActions(lifecycle, state string) []string {
 	case "READY":
 		return []string{"start", "cancel"}
 	case "IN_PROGRESS":
-		return []string{"resume", "checkpoint", "handoff", "pause", "wait", "defer", "block", "scope", "review", "fix", "complete", "cancel"}
+		return []string{"resume", "checkpoint", "handoff", "task complete", "settle", "pause", "wait", "defer", "block", "scope", "review", "fix", "complete", "cancel"}
 	case "PAUSED":
 		return []string{"resume", "block", "cancel"}
 	case "WAITING":
