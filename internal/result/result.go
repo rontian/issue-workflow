@@ -210,7 +210,7 @@ func allowedActions(lifecycle, state string) []string {
 	case "PAUSED":
 		return []string{"resume", "block", "cancel"}
 	case "WAITING":
-		return []string{"recheck", "block", "cancel"}
+		return []string{"recheck", "settle", "complete", "block", "cancel"}
 	case "DEFERRED":
 		return []string{"resume", "cancel"}
 	case "BLOCKED":
