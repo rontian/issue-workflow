@@ -20,6 +20,7 @@ CLEANUP=0
 FAILURES=0
 ISSUE=""
 TEST_BRANCH=""
+PUBLISHED_BRANCH=""
 CHECKOUT_A=""
 CHECKOUT_B=""
 STAGE="local"
@@ -79,6 +80,28 @@ live_iw() {
   # Logs contain test Issue data. Do not forward unreviewed logs from private repositories.
   "$BIN_DIR/iw" "$@" --json
 }
+# Clone only into a newly created verification directory.  GitHub's HTTPS/HTTP2
+# transport may be unstable on some macOS/network configurations; force HTTP/1.1
+# via git clone --config (also persisted for subsequent remote operations).
+# Retry transport failures without ever touching the user's working checkout.
+clone_sandbox_checkout() {
+  dest="$1"
+  if [ "$dest" != "$REPORT_DIR/checkout-a" ] && [ "$dest" != "$REPORT_DIR/checkout-b" ]; then
+    echo "Refusing clone outside verification directory" >&2
+    return 2
+  fi
+  attempt=1
+  while [ "$attempt" -le 3 ]; do
+    if [ -e "$dest" ] || [ -L "$dest" ]; then rm -rf "$dest" || return 1; fi
+    echo "Clone attempt $attempt/3 (HTTP/1.1)"
+    if gh repo clone "$TARGET_REPO" "$dest" -- --depth 1 --config http.version=HTTP/1.1; then
+      if [ -d "$dest/.git" ]; then return 0; fi
+    fi
+    if [ "$attempt" -lt 3 ]; then sleep $((attempt * 2)); fi
+    attempt=$((attempt + 1))
+  done
+  return 1
+}
 run_live_step() {
   name="$1"; shift
   log="$REPORT_DIR/live-$name.json"
@@ -100,7 +123,7 @@ finish() {
   echo "Results: $REPORT_DIR/results.csv"
   echo "Repo state: $REPORT_DIR/meta.txt"
   echo "Created live Issue: ${ISSUE:-none}"
-  echo "Created test branch: ${TEST_BRANCH:-none}"
+  echo "Confirmed remote test branch: ${PUBLISHED_BRANCH:-none}"
   echo "Fail count: $FAILURES"
   echo "Send results.csv + failing step logs after removing any private information."
   if [ "$FAILURES" -ne 0 ]; then exit 1; fi
@@ -148,12 +171,13 @@ if [ "$FAILURES" -ne 0 ]; then exit 1; fi
 TEST_BRANCH="iw-blackbox-${STAMP}-$$"
 CHECKOUT_A="$REPORT_DIR/checkout-a"
 CHECKOUT_B="$REPORT_DIR/checkout-b"
-run clone-a gh repo clone "$TARGET_REPO" "$CHECKOUT_A" -- --depth 1
+run clone-a clone_sandbox_checkout "$CHECKOUT_A"
 if [ ! -d "$CHECKOUT_A/.git" ]; then exit 1; fi
 run branch-a git -C "$CHECKOUT_A" switch -c "$TEST_BRANCH"
 run commit-a git -C "$CHECKOUT_A" -c user.name="iw-blackbox" -c user.email="iw-blackbox@users.noreply.github.com" -c commit.gpgsign=false commit --allow-empty -m "[iw-blackbox] isolated workflow HEAD $STAMP"
 run publish-a git -C "$CHECKOUT_A" push -u origin "$TEST_BRANCH"
 if [ "$FAILURES" -ne 0 ]; then exit 1; fi
+PUBLISHED_BRANCH="$TEST_BRANCH"
 
 cd "$CHECKOUT_A" || exit 1
 OP="iw-blackbox-${STAMP}-$$"
@@ -204,7 +228,7 @@ run_live_step task-two live_iw task complete "$ISSUE" --task-id T02 --summary "S
 run_live_step handoff live_iw handoff "$ISSUE" --summary "published exact HEAD" --next "restore in checkout-b" --portable --operation-id "$OP-handoff" || exit 1
 
 cd "$REPORT_DIR" || exit 1
-run clone-b gh repo clone "$TARGET_REPO" "$CHECKOUT_B" -- --depth 1
+run clone-b clone_sandbox_checkout "$CHECKOUT_B"
 if [ ! -d "$CHECKOUT_B/.git" ]; then exit 1; fi
 cd "$CHECKOUT_B" || exit 1
 run_live_step restore-preview live_iw restore "$ISSUE" || exit 1
