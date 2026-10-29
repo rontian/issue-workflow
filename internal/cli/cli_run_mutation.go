@@ -12,7 +12,7 @@ func(c *CLI)runMutation(ctx context.Context,command string,o options,wo app.Work
 	conditions:=[]domain.WaitCondition{}
 	for _,spec:=range o.Conditions {condition,ce:=domain.ParseWaitConditionSpec(spec);if ce!=nil{return c.render(result.Failure(command,"INVALID_INVOCATION",ce.Error(),nil,nil),result.ExitInvalid,o.JSON)};conditions=append(conditions,condition)}
 	if ce:=domain.ValidateWaitConditions(conditions);ce!=nil{return c.render(result.Failure(command,"INVALID_INVOCATION",ce.Error(),nil,nil),result.ExitInvalid,o.JSON)}
-	mo:=app.MutationOptions{WorkflowOptions:wo,DryRun:o.DryRun,OperationID:o.OperationID,RunID:o.RunID,Summary:o.Summary,Next:o.Next,Reason:o.Reason,Warnings:o.Warnings,Validation:vals,Findings:o.Findings,ScopeAction:o.ScopeAction,ProposalEventID:o.ProposalEventID,Pushed:o.Pushed,PR:o.PR,Portable:o.Portable,Resolved:o.Resolved,Apply:o.Apply,Conditions:conditions,TaskID:o.TaskID}
+	mo:=app.MutationOptions{WorkflowOptions:wo,DryRun:o.DryRun,OperationID:o.OperationID,RunID:o.RunID,Summary:o.Summary,Next:o.Next,Reason:o.Reason,Warnings:o.Warnings,Validation:vals,Findings:o.Findings,ScopeAction:o.ScopeAction,ProposalEventID:o.ProposalEventID,Pushed:o.Pushed,PR:o.PR,Portable:o.Portable,Resolved:o.Resolved,Apply:o.Apply,Conditions:conditions,TaskID:o.TaskID,OwnerConfirmed:o.OwnerConfirmed,SettlementItem:domain.SettlementItem{ID:o.SettlementItemID,Kind:o.SettlementKind,FactStatus:o.SettlementFact,Disposition:o.SettlementDisposition,Target:o.SettlementTarget,Reason:o.Reason}}
 	var r result.CommandResult;var code int
 	switch command{
 	case "migrate":r,code=c.Workflow.Migrate(ctx,mo)
@@ -29,6 +29,7 @@ func(c *CLI)runMutation(ctx context.Context,command string,o options,wo app.Work
 	case "review":r,code=c.Workflow.Review(ctx,mo)
 	case "fix":r,code=c.Workflow.Fix(ctx,mo)
 	case "task complete":r,code=c.Workflow.TaskComplete(ctx,mo)
+	case "settle":r,code=c.Workflow.Settle(ctx,mo)
 	case "complete":r,code=c.Workflow.Complete(ctx,mo)
 	case "final":r,code=c.Workflow.Final(ctx,mo)
 	case "cancel":r,code=c.Workflow.Cancel(ctx,mo)
