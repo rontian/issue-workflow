@@ -171,8 +171,29 @@ func copyManagedAsset(source,target string,marker AdapterInstallMarker)error{
 	info,err:=os.Lstat(source);if err!=nil{return err};if info.Mode()&os.ModeSymlink!=0{return fmt.Errorf("symlink source rejected")};if !info.IsDir(){return fmt.Errorf("adapter asset source must be a directory")}
 	parent:=filepath.Dir(target);if err:=os.MkdirAll(parent,0755);err!=nil{return err};stage,err:=os.MkdirTemp(parent,".iw-stage-*");if err!=nil{return err};defer os.RemoveAll(stage)
 	stageTarget:=filepath.Join(stage,"asset");if err:=copyDirNoSymlinks(source,stageTarget);err!=nil{return err};raw,_:=json.MarshalIndent(marker,"","  ");if err:=os.WriteFile(filepath.Join(stageTarget,".iw-adapter-install.json"),append(raw,'\n'),0644);err!=nil{return err}
-	backup:="";if _,err:=os.Stat(target);err==nil{backup=target+".iw-backup";_ = os.RemoveAll(backup);if err:=os.Rename(target,backup);err!=nil{return err}}
-	if err:=os.Rename(stageTarget,target);err!=nil{if backup!=""{_ = os.Rename(backup,target)};return err};if backup!=""{_ = os.RemoveAll(backup)};return nil
+	// Never remove or reuse a predictable sibling path such as target+".iw-backup".
+	// That path may belong to the user or another process. Stage the previous
+	// managed tree under a newly created, unique directory owned by this call.
+	backupDir,backup:="",""
+	if _,err:=os.Lstat(target);err==nil{
+		var createErr error
+		backupDir,createErr=os.MkdirTemp(parent,".iw-backup-*")
+		if createErr!=nil{return createErr}
+		backup=filepath.Join(backupDir,"asset")
+		if err:=os.Rename(target,backup);err!=nil{_ = os.Remove(backupDir);return err}
+	}else if !os.IsNotExist(err){return err}
+	if err:=os.Rename(stageTarget,target);err!=nil{
+		if backup!=""{
+			if rollbackErr:=os.Rename(backup,target);rollbackErr!=nil{
+				// Preserve the previous asset if rollback itself fails.
+				return fmt.Errorf("install failed: %v; rollback failed: %v; previous asset preserved at %s",err,rollbackErr,backup)
+			}
+			_ = os.Remove(backupDir)
+		}
+		return err
+	}
+	if backup!=""{_ = os.RemoveAll(backupDir)}
+	return nil
 }
 func copyDirNoSymlinks(src,dst string)error{return filepath.Walk(src,func(path string,info os.FileInfo,err error)error{if err!=nil{return err};if info.Mode()&os.ModeSymlink!=0{return fmt.Errorf("symlink rejected: %s",path)};rel,err:=filepath.Rel(src,path);if err!=nil{return err};target:=filepath.Join(dst,rel);if info.IsDir(){return os.MkdirAll(target,info.Mode().Perm())};in,err:=os.Open(path);if err!=nil{return err};defer in.Close();out,err:=os.OpenFile(target,os.O_CREATE|os.O_WRONLY|os.O_TRUNC,info.Mode().Perm());if err!=nil{return err};_,cpErr:=io.Copy(out,in);closeErr:=out.Close();if cpErr!=nil{return cpErr};return closeErr})}
 
