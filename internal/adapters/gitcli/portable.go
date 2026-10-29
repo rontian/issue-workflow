@@ -15,7 +15,9 @@ func (c *Client) RemoteBranchHead(ctx context.Context, dir, remote, branch strin
 }
 
 func (c *Client) FetchRemote(ctx context.Context, dir, remote string) error {
-	_, err := c.run(ctx, dir, "fetch", "--prune", remote); return err
+	// Fetch explicit remote heads: shallow/single-branch clones may have a restricted
+	// remote.origin.fetch refspec and otherwise omit the portable handoff branch.
+	_, err := c.run(ctx, dir, "fetch", "--no-tags", "--prune", remote, "+refs/heads/*:refs/remotes/"+remote+"/*"); return err
 }
 
 func (c *Client) CommitExists(ctx context.Context, dir, head string) bool {
