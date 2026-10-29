@@ -35,14 +35,20 @@ Status vocabulary:
 | mutation after Contract Body digest drift | `CONTRACT_CHANGED` | No event until explicit scope acceptance |
 | dry-run mutation | success | No new Event |
 | portable handoff on dirty worktree | `STALE_GIT_STATE` | No new Event |
-| complete with changed local HEAD | `STALE_GIT_STATE` | No new Event |
+| complete after local HEAD changes with prior passed Review | `REVIEW_REQUIRED` (Review HEAD gate precedes Git drift) | No new Event; independent Git drift is covered by `TestGitHeadDriftWithoutExistingReviewFailsClosed` |
 | portable handoff with unpublished HEAD | `STALE_GIT_STATE` | No new Event |
 | complete with stale review HEAD | `REVIEW_REQUIRED` | No new Event |
 | complete with stale validation HEAD | `VALIDATION_FAILED` | No new Event |
-| restore with moved remote branch HEAD | `RESTORE_CONFLICT` | No new Event; no local reset |
+| restore with moved remote branch HEAD | `RESTORE_CONFLICT` | No new Event; no local reset; checkpoint new HEAD before explicit cancel/native close |
 | unsupported event marker on sacrificial Issue | `UNSUPPORTED_SCHEMA` | Read and write fail closed; no additional Event |
 
 **Not yet covered deterministically by this live script:** unknown/ambiguous write delivery under injected transport faults, malformed *valid-marker* event chain/fork, comprehensive v1 migration, concurrent mutations, and exhaustive adapter manager/security conformance. The fake-GitHub Go suite covers selected unknown-write outcomes; do **not** claim full negative acceptance on the basis of the script alone.
+
+## 2026-10-29 macOS retest checkpoint (failed, no live writes)
+
+At branch `0473d534`, user ran local `verify-macos.sh` (`Fail count: 2`) and local-only portions of the negative verifier twice (each `Fail count: 1`). The sole failing test was `TestStaleReviewAndValidationHeadsDoNotAppendCompletion`, which incorrectly expected `STALE_GIT_STATE/7` when a previously passed review belonged to an old HEAD. The Core correctly returned `REVIEW_REQUIRED/6` before the general Git drift check. Unit/race stopped the opt-in live negative run before any new Issue/branch was created.
+
+Fixed by test commits `6c02af6` (priority assertion + independent no-review Git-drift test) and `361df42` (live script expectation and later checkpoint before native close). These fixes have **not yet passed the user's macOS retest**; no completion checklist may be checked from this record.
 
 ## Next verification
 
