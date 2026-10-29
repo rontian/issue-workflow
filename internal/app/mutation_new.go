@@ -14,7 +14,7 @@ func (s *WorkflowService) NewIssue(ctx context.Context,o NewIssueOptions)(result
 	if strings.TrimSpace(o.Title)==""{return workflowFail("new","INVALID_INVOCATION","--title is required",nil,nil)}
 	op:=strings.TrimSpace(o.OperationID);if op==""{var err error;op,err=domain.NewID();if err!=nil{return workflowFail("new","INTERNAL_ERROR","无法生成 operation_id",nil,nil)}}
 	id:=strings.TrimSpace(o.ContractID);if id==""{id=op}
-	body,err:=domain.RenderTaskContract(domain.TaskContractInput{ContractID:id,CreateOperationID:op,Goal:o.Goal,Scope:o.Scope,OutOfScope:o.OutOfScope,Constraints:o.Constraints,AcceptanceCriteria:o.Acceptance,Validation:o.Validation,Dependencies:o.Dependencies});if err!=nil{return workflowFail("new",workflowErrorCode(err,"INVALID_INVOCATION"),err.Error(),nil,nil)}
+	body,err:=domain.RenderTaskContract(domain.TaskContractInput{ContractID:id,CreateOperationID:op,Goal:o.Goal,Scope:o.Scope,OutOfScope:o.OutOfScope,Constraints:o.Constraints,AcceptanceCriteria:o.Acceptance,Tasks:o.Tasks,Validation:o.Validation,Dependencies:o.Dependencies});if err!=nil{return workflowFail("new",workflowErrorCode(err,"INVALID_INVOCATION"),err.Error(),nil,nil)}
 	repo,err:=s.repositoryForCommand(ctx,o.WorkflowOptions);if err!=nil{return workflowFail("new",workflowErrorCode(err,"ENVIRONMENT_INVALID"),err.Error(),nil,nil)}
 	preview:=NewIssuePreview{Title:o.Title,Body:body,ContractID:id,OperationID:op,DryRun:o.DryRun}
 	if o.DryRun{r:=result.Success("new",preview);r.Repository=repo.FullName();r.Lifecycle=string(domain.LifecycleReady);return r,result.ExitOK}
