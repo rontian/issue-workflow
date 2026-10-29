@@ -3,12 +3,16 @@ package cli
 import(
 	"context"
 	"github.com/rontian/issue-workflow/internal/app"
+	"github.com/rontian/issue-workflow/internal/domain"
 	"github.com/rontian/issue-workflow/internal/result"
 )
 
 func(c *CLI)runMutation(ctx context.Context,command string,o options,wo app.WorkflowOptions)int{
 	vals,err:=parseValidationRecords(o.Validation);if err!=nil{return c.render(result.Failure(command,"INVALID_INVOCATION",err.Error(),nil,nil),result.ExitInvalid,o.JSON)}
-	mo:=app.MutationOptions{WorkflowOptions:wo,DryRun:o.DryRun,OperationID:o.OperationID,RunID:o.RunID,Summary:o.Summary,Next:o.Next,Reason:o.Reason,Warnings:o.Warnings,Validation:vals,Findings:o.Findings,ScopeAction:o.ScopeAction,ProposalEventID:o.ProposalEventID,Pushed:o.Pushed,PR:o.PR,Portable:o.Portable,Resolved:o.Resolved,Apply:o.Apply}
+	conditions:=[]domain.WaitCondition{}
+	for _,spec:=range o.Conditions {c,ce:=domain.ParseWaitConditionSpec(spec);if ce!=nil{return c.render(result.Failure(command,"INVALID_INVOCATION",ce.Error(),nil,nil),result.ExitInvalid,o.JSON)};conditions=append(conditions,c)}
+	if ce:=domain.ValidateWaitConditions(conditions);ce!=nil{return c.render(result.Failure(command,"INVALID_INVOCATION",ce.Error(),nil,nil),result.ExitInvalid,o.JSON)}
+	mo:=app.MutationOptions{WorkflowOptions:wo,DryRun:o.DryRun,OperationID:o.OperationID,RunID:o.RunID,Summary:o.Summary,Next:o.Next,Reason:o.Reason,Warnings:o.Warnings,Validation:vals,Findings:o.Findings,ScopeAction:o.ScopeAction,ProposalEventID:o.ProposalEventID,Pushed:o.Pushed,PR:o.PR,Portable:o.Portable,Resolved:o.Resolved,Apply:o.Apply,Conditions:conditions}
 	var r result.CommandResult;var code int
 	switch command{
 	case "migrate":r,code=c.Workflow.Migrate(ctx,mo)
