@@ -50,6 +50,14 @@ At branch `0473d534`, user ran local `verify-macos.sh` (`Fail count: 2`) and loc
 
 Fixed by test commits `6c02af6` (priority assertion + independent no-review Git-drift test) and `361df42` (live script expectation and later checkpoint before native close). These fixes have **not yet passed the user's macOS retest**; no completion checklist may be checked from this record.
 
+## 2026-10-29 successful local retest and partial pi-test negative run
+
+User's subsequent Go 1.26.6/darwin arm64 results: two targeted HEAD-gate tests **PASS**; `verify-macos.sh` local shell/compile/unit/race/vet/build/install/schema/help all **PASS**, `Fail count: 0`; `verify-negative-macos.sh` local shell/unit/build **PASS**, `Fail count: 0`.
+
+Explicitly authorized `IW_TEST_CONFIRM=YES ... --live` created dedicated `rontian/pi-test#6` and `iw-negative-20261029T083558Z-17022`. Recorded five canonical events (START, CHECKPOINT, REVIEW, SCOPE, REVIEW). Operation-ID conflict, dry-run no-append, Contract drift/reconcile, dirty portable handoff all **PASS** including invariant checks (no event added on rejection). At `review-precedes-git-drift`, machine result was `GITHUB_UNAVAILABLE/4` (expected `REVIEW_REQUIRED`); the external Event count remained **5 -> 5**. This is **an incomplete infrastructure-dependent check, not a completion-gate PASS**. Issue #6 and branch remain as isolated audit evidence; the test did not reach poison-schema, restore, or final close.
+
+Following that evidence, branch commits `29dc5f5` and `f201fb2` add one bounded retry of failed **read-only** paginated Issue comments; `d10c9be` tests read retry, permanent failure, malformed page, cancellation and no retry of comment writes; `d061004` classifies `GITHUB_UNAVAILABLE` in the live harness as `INFRA_FAIL` with minimal diagnostics. **This newer HEAD has not yet been retested on macOS**, and a second live run will create a new, separately isolated test Issue/branch rather than silently resuming #6.
+
 ## Next verification
 
 ```bash
