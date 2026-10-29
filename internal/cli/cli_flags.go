@@ -8,7 +8,7 @@ import(
 
 func flagsBeforePositionals(args []string)([]string,error){
 	flags:=[]string{};pos:=[]string{}
-	value:=map[string]bool{"--repo":true,"--remote":true,"--host":true,"--adapter":true,"--issue":true,"--operation-id":true,"--run-id":true,"--summary":true,"--next":true,"--reason":true,"--proposal-event":true,"--title":true,"--goal":true,"--contract-id":true,"--pr":true,"--scope":true,"--out-of-scope":true,"--acceptance":true,"--constraint":true,"--validation":true,"--dependency":true,"--warning":true,"--finding":true,"--condition":true}
+	value:=map[string]bool{"--repo":true,"--remote":true,"--host":true,"--adapter":true,"--issue":true,"--operation-id":true,"--run-id":true,"--summary":true,"--next":true,"--reason":true,"--proposal-event":true,"--title":true,"--goal":true,"--contract-id":true,"--pr":true,"--scope":true,"--out-of-scope":true,"--acceptance":true,"--constraint":true,"--validation":true,"--dependency":true,"--warning":true,"--finding":true,"--condition":true,"--task-id":true,"--task":true}
 	for i:=0;i<len(args);i++{a:=args[i];if strings.HasPrefix(a,"--"){flags=append(flags,a);name:=a;if j:=strings.IndexByte(a,'=');j>=0{name=a[:j]};if value[name]&&!strings.Contains(a,"="){if i+1>=len(args){return nil,fmt.Errorf("flag %s requires a value",name)};i++;flags=append(flags,args[i])}}else{pos=append(pos,a)}}
 	return append(flags,pos...),nil
 }
@@ -33,6 +33,7 @@ func registerFlags(fs *flag.FlagSet,o *options){
 	fs.StringVar(&o.Title,"title",o.Title,"Issue title")
 	fs.StringVar(&o.Goal,"goal",o.Goal,"Task Contract goal")
 	fs.StringVar(&o.ContractID,"contract-id",o.ContractID,"explicit contract id")
+	fs.StringVar(&o.TaskID,"task-id",o.TaskID,"stable Txx task ID for task complete")
 	fs.BoolVar(&o.Pushed,"pushed",o.Pushed,"record commit as pushed in delivery evidence")
 	fs.IntVar(&o.PR,"pr",o.PR,"record pull request number in delivery evidence")
 	fs.BoolVar(&o.Portable,"portable",o.Portable,"require cross-machine retrievable handoff")
@@ -47,4 +48,5 @@ func registerFlags(fs *flag.FlagSet,o *options){
 	fs.Var(&o.Warnings,"warning","repeatable handoff warning")
 	fs.Var(&o.Findings,"finding","repeatable review finding")
 	fs.Var(&o.Conditions,"condition","repeatable ID=waiting[:note] or ID=resolved:evidence for wait/recheck")
+	fs.Var(&o.Tasks,"task","repeatable Txx: Description for new Issue Implementation Tasks")
 }
