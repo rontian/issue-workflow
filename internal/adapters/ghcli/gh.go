@@ -78,7 +78,7 @@ func (c *Client) IssueComments(ctx context.Context, repo domain.RepositoryIdenti
 			timer := time.NewTimer(200 * time.Millisecond)
 			select {
 			case <-ctx.Done():
-				if !timer.Stop() { <-timer.C }
+				if !timer.Stop() { select { case <-timer.C: default: } }
 				return nil, ctx.Err()
 			case <-timer.C:
 			}
