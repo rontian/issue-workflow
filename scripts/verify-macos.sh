@@ -111,6 +111,7 @@ STAGE=local
 require_command go || exit 1
 require_command git || exit 1
 echo "Go: $(go version)"
+run shell-syntax bash -n "$ROOT/scripts/verify-macos.sh"
 run unit bash -c 'cd "$1" && go test ./...' _ "$ROOT"
 run race bash -c 'cd "$1" && go test -race ./...' _ "$ROOT"
 run vet bash -c 'cd "$1" && go vet ./...' _ "$ROOT"
@@ -148,7 +149,7 @@ CHECKOUT_B="$REPORT_DIR/checkout-b"
 run clone-a gh repo clone "$TARGET_REPO" "$CHECKOUT_A" -- --depth 1
 if [ ! -d "$CHECKOUT_A/.git" ]; then exit 1; fi
 run branch-a git -C "$CHECKOUT_A" switch -c "$TEST_BRANCH"
-run commit-a git -C "$CHECKOUT_A" -c user.name="iw-blackbox" -c user.email="iw-blackbox@users.noreply.github.com" commit --allow-empty -m "[iw-blackbox] isolated workflow HEAD $STAMP"
+run commit-a git -C "$CHECKOUT_A" -c user.name="iw-blackbox" -c user.email="iw-blackbox@users.noreply.github.com" -c commit.gpgsign=false commit --allow-empty -m "[iw-blackbox] isolated workflow HEAD $STAMP"
 run publish-a git -C "$CHECKOUT_A" push -u origin "$TEST_BRANCH"
 if [ "$FAILURES" -ne 0 ]; then exit 1; fi
 
@@ -160,11 +161,31 @@ case "$ISSUE" in ''|*[!0-9]*) echo "Could not identify created Issue" >&2;record
 echo "Test Issue: https://github.com/$TARGET_REPO/issues/$ISSUE"
 run_live_step doctor live_iw doctor --issue "$ISSUE" || exit 1
 run_live_step start live_iw start "$ISSUE" --operation-id "$OP-start" || exit 1
+# Retry of the exact same logical operation must not create a second event.
+run_live_step start-idempotent live_iw start "$ISSUE" --operation-id "$OP-start" || exit 1
+if ! jq -e '(.warnings | index("IDEMPOTENT_REPLAY")) != null' "$REPORT_DIR/live-start-idempotent.json" >/dev/null; then record FAIL start-idempotency 1;exit 1;fi
+record PASS start-idempotency 0
 run_live_step checkpoint live_iw checkpoint "$ISSUE" --summary "Safe synthetic milestone" --next "test external wait" --validation "v1=pass:synthetic true check" --operation-id "$OP-checkpoint" || exit 1
 run_live_step task-status-a live_iw task status "$ISSUE" || exit 1
+# Completing while T01/T02 are incomplete must be denied without a remote event.
+if live_iw complete "$ISSUE" --summary "must fail before implementation" > "$REPORT_DIR/live-negative-early-complete.json" 2> "$REPORT_DIR/live-negative-early-complete.stderr"; then
+  record FAIL early-complete-rejected 1; exit 1
+elif jq -e '.ok == false and .error.code == "TRANSITION_BLOCKED"' "$REPORT_DIR/live-negative-early-complete.json" >/dev/null; then
+  record PASS early-complete-rejected 0
+else
+  record FAIL early-complete-rejected 1; exit 1
+fi
 run_live_step task-one live_iw task complete "$ISSUE" --task-id T01 --summary "Synthetic implementation T01 completed" --operation-id "$OP-t1" || exit 1
 
 run_live_step wait live_iw wait "$ISSUE" --reason "CI and manual condition" --next "recheck both" --condition ci=waiting:synthetic-pending --condition owner=waiting:synthetic-pending --operation-id "$OP-wait" || exit 1
+# Blind aggregate resolution cannot bypass known individual conditions.
+if live_iw recheck "$ISSUE" --resolved > "$REPORT_DIR/live-negative-blind-recheck.json" 2> "$REPORT_DIR/live-negative-blind-recheck.stderr"; then
+  record FAIL blind-recheck-rejected 1; exit 1
+elif jq -e '.ok == false and .error.code == "INVALID_INVOCATION"' "$REPORT_DIR/live-negative-blind-recheck.json" >/dev/null; then
+  record PASS blind-recheck-rejected 0
+else
+  record FAIL blind-recheck-rejected 1; exit 1
+fi
 run_live_step recheck-partial live_iw recheck "$ISSUE" --condition ci=resolved:synthetic-test-succeeded --condition owner=waiting:synthetic-pending --operation-id "$OP-partial" || exit 1
 if ! jq -e '.lifecycle == "WAITING"' "$REPORT_DIR/live-recheck-partial.json" >/dev/null; then record FAIL partial-stays-waiting 1;exit 1;fi
 record PASS partial-stays-waiting 0
