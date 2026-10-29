@@ -8,7 +8,7 @@ import(
 
 func flagsBeforePositionals(args []string)([]string,error){
 	flags:=[]string{};pos:=[]string{}
-	value:=map[string]bool{"--repo":true,"--remote":true,"--host":true,"--adapter":true,"--issue":true,"--operation-id":true,"--run-id":true,"--summary":true,"--next":true,"--reason":true,"--proposal-event":true,"--title":true,"--goal":true,"--contract-id":true,"--pr":true,"--scope":true,"--out-of-scope":true,"--acceptance":true,"--constraint":true,"--validation":true,"--dependency":true,"--warning":true,"--finding":true}
+	value:=map[string]bool{"--repo":true,"--remote":true,"--host":true,"--adapter":true,"--issue":true,"--operation-id":true,"--run-id":true,"--summary":true,"--next":true,"--reason":true,"--proposal-event":true,"--title":true,"--goal":true,"--contract-id":true,"--pr":true,"--scope":true,"--out-of-scope":true,"--acceptance":true,"--constraint":true,"--validation":true,"--dependency":true,"--warning":true,"--finding":true,"--condition":true}
 	for i:=0;i<len(args);i++{a:=args[i];if strings.HasPrefix(a,"--"){flags=append(flags,a);name:=a;if j:=strings.IndexByte(a,'=');j>=0{name=a[:j]};if value[name]&&!strings.Contains(a,"="){if i+1>=len(args){return nil,fmt.Errorf("flag %s requires a value",name)};i++;flags=append(flags,args[i])}}else{pos=append(pos,a)}}
 	return append(flags,pos...),nil
 }
@@ -46,4 +46,5 @@ func registerFlags(fs *flag.FlagSet,o *options){
 	fs.Var(&o.Dependencies,"dependency","repeatable dependency/reference")
 	fs.Var(&o.Warnings,"warning","repeatable handoff warning")
 	fs.Var(&o.Findings,"finding","repeatable review finding")
+	fs.Var(&o.Conditions,"condition","repeatable ID=waiting[:note] or ID=resolved:evidence for wait/recheck")
 }
