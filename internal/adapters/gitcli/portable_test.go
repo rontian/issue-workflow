@@ -66,3 +66,13 @@ func TestRestoreBranchUsesOnlySafeFastForwardOperations(t *testing.T) {
 		}
 	}
 }
+
+func TestFetchRemoteRetrievesNonDefaultBranchFromShallowClone(t *testing.T){
+    runner:=&scriptedPortableRunner{responses:[]ports.ProcessResult{{}}}
+    client:=New(runner)
+    if err:=client.FetchRemote(context.Background(),"/repo","origin");err!=nil{t.Fatalf("fetch: %v",err)}
+    want:=[]string{"fetch","--no-tags","--prune","origin","+refs/heads/*:refs/remotes/origin/*"}
+    if len(runner.commands)!=1||!reflect.DeepEqual(runner.commands[0].Args,want){
+        t.Fatalf("fetch must obtain all remote branch refs even when clone fetchspec is single-branch: %#v",runner.commands)
+    }
+}
