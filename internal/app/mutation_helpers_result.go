@@ -27,6 +27,7 @@ func nextAfterMutation(t domain.WorkflowEventType, lifecycle string) []string {
 	case domain.EventRecheck: if lifecycle == string(domain.LifecycleWaiting) { return []string{"condition still pending; recheck later"} }; return []string{"continue authorized work"}
 	case domain.EventDefer: return []string{"resume the later segment with iw resume <issue> when authorized"}
 	case domain.EventCheckpoint: return []string{"continue work, review, or hand off"}
+	case domain.EventTaskComplete: return []string{"continue with next planned Txx; check iw task status"}
 	case domain.EventHandoff: return []string{"next session: iw context <issue> then iw resume <issue> if lifecycle requires it"}
 	case domain.EventBlocked: return []string{"resolve blocker then iw resume <issue>"}
 	case domain.EventReview: return []string{"iw fix <issue> if findings exist; otherwise complete when gates pass"}
