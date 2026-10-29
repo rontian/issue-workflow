@@ -128,6 +128,8 @@ func NormalizeMachine(r *CommandResult) {
 			addConstraint("SCOPE_UNRESOLVED", w)
 		case "STALE_GIT_STATE":
 			addConstraint("STALE_GIT_STATE", w)
+		case "GITHUB_ISSUE_OPEN_AFTER_WORKFLOW_TERMINAL":
+			addAction("close_github_issue","issue close","GITHUB_ISSUE_OPEN_AFTER_WORKFLOW_TERMINAL")
 		case "GITHUB_ISSUE_CLOSED":
 			addConstraint("GITHUB_ISSUE_CLOSED", "GitHub Issue is closed; reopen it explicitly before active workflow mutation")
 			addAction("reopen_github_issue", "gh issue reopen", "GITHUB_ISSUE_CLOSED")
@@ -216,7 +218,7 @@ func allowedActions(lifecycle, state string) []string {
 	case "BLOCKED":
 		return []string{"context", "resume", "scope", "cancel"}
 	case "COMPLETED", "CANCELLED":
-		return []string{"reopen"}
+		return []string{"issue close", "reopen"}
 	default:
 		return []string{}
 	}
