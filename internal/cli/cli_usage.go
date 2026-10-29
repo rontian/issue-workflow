@@ -17,6 +17,8 @@ Environment / protocol:
 Project / task read model:
   iw project status
   iw tasks
+  iw task status <issue>
+  iw task complete <issue> --task-id T01 --summary S
   iw next
   iw context <issue>
   iw status <issue>
