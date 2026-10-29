@@ -69,6 +69,7 @@ func (s *WorkflowService) mutate(ctx context.Context, command string, t domain.W
 	before := rep.Aggregate.State
 	if t == domain.EventMigrate { before = domain.LifecycleState(domain.ProjectLifecycle(rep.Aggregate.State)) }
 	after, err := plannedState(t, rep.Aggregate.State, o); if err != nil { return mutationFailFrom(command, "TRANSITION_BLOCKED", err.Error(), rep, rr) }
+	if t == domain.EventTaskComplete { if o.TaskID!=rep.TaskProgress.Current || rep.TaskProgress.Current=="" { return mutationFailFrom(command,"TRANSITION_BLOCKED","only the current planned Txx task can be completed",rep,rr) }; if rep.CurrentGit.Dirty || rep.GitDrift.Changed { return mutationFailFrom(command,"STALE_GIT_STATE","task completion requires a clean, checkpointed Git HEAD",rep,rr) } }
 	digest := rep.Aggregate.AcceptedContractDigest; if digest == "" { digest = rep.Contract.Digest }
 	if t == domain.EventScope && strings.ToLower(o.ScopeAction) == "accept" { digest = rep.Contract.Digest }
 	var parent *string; if rep.Aggregate.LastEvent != nil { x := rep.Aggregate.LastEvent.EventID; parent = &x }
@@ -81,7 +82,7 @@ func (s *WorkflowService) mutate(ctx context.Context, command string, t domain.W
 	if t == domain.EventComplete && rep.Aggregate.State==domain.StateWaiting {if len(rep.Aggregate.WaitingConditions)>0&&!domain.WaitConditionsResolved(rep.Aggregate.WaitingConditions){return mutationFailFrom(command,"WAITING","named external conditions remain unresolved; recheck all before complete",rep,rr)};if len(rep.Aggregate.WaitingConditions)==0&&len(o.Validation)==0&&len(rep.Settlement.Items)==0{return mutationFailFrom(command,"WAITING","direct completion from legacy WAITING requires explicit final validation or settlement evidence",rep,rr)}}
 	if t == domain.EventComplete { if err := completionGate(rep, o); err != nil { return mutationFailFrom(command, workflowErrorCode(err, "VALIDATION_FAILED"), err.Error(), rep, rr) } }
 	if t == domain.EventSettle {if rep.CurrentGit.Dirty||rep.GitDrift.Changed{return mutationFailFrom(command,"STALE_GIT_STATE","settlement requires clean, checkpointed Git HEAD",rep,rr)};if err:=validateSettlementReference(rep,o.SettlementItem);err!=nil{return mutationFailFrom(command,workflowErrorCode(err,"INVALID_INVOCATION"),err.Error(),rep,rr)}}
-	if t == domain.EventTaskComplete { if o.TaskID!=rep.TaskProgress.Current || rep.TaskProgress.Current=="" { return mutationFailFrom(command,"TRANSITION_BLOCKED","only the current planned Txx task can be completed",rep,rr) }; if rep.CurrentGit.Dirty || rep.GitDrift.Changed { return mutationFailFrom(command,"STALE_GIT_STATE","task completion requires a clean, checkpointed Git HEAD",rep,rr) } }
+	
 	if t == domain.EventDefer { if err:=deferSettlementGate(rep);err!=nil{return mutationFailFrom(command,workflowErrorCode(err,"TRANSITION_BLOCKED"),err.Error(),rep,rr)};if err := deferGate(ctx, s, rep, o); err != nil { return mutationFailFrom(command, workflowErrorCode(err, "TRANSITION_BLOCKED"), err.Error(), rep, rr) } }
 	comment, err := domain.RenderWorkflowEvent(ev); if err != nil { return mutationFailFrom(command, "INTERNAL_ERROR", err.Error(), rep, rr) }
 	preview := MutationPreview{Event: ev, Comment: comment, OperationID: op, DryRun: o.DryRun}
