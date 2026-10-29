@@ -33,6 +33,8 @@ type options struct{
 	Interactive bool
 	OperationID,RunID,Summary,Next,Reason,ProposalEventID string
 	Title,Goal,ContractID,TaskID string
+	SettlementItemID,SettlementKind,SettlementFact,SettlementDisposition,SettlementTarget string
+	OwnerConfirmed bool
 	Pushed bool
 	PR int
 	Portable,Resolved,Apply bool
