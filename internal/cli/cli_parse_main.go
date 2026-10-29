@@ -24,6 +24,8 @@ func parse(args []string)(string,options,bool,error){
 		if len(pos)==1&&strings.ToLower(pos[0])=="list"{cmd="adapter list";break}
 		if len(pos)!=2{return cmd,o,false,errors.New("Usage: iw adapter list | status|doctor|install|update|remove <id>")}
 		a:=strings.ToLower(pos[0]);if a!="status"&&a!="doctor"&&a!="install"&&a!="update"&&a!="remove"{return cmd,o,false,errors.New("adapter action must be list|status|doctor|install|update|remove")};if o.AdapterID!=""&&o.AdapterID!=pos[1]{return cmd,o,false,errors.New("positional adapter 与 --adapter 不一致")};o.AdapterID=pos[1];cmd="adapter "+a
+	case "issue":
+		if len(pos)!=2{return cmd,o,false,errors.New("Usage: iw issue close|reopen <issue>")};a:=strings.ToLower(pos[0]);if a!="close"&&a!="reopen"{return cmd,o,false,errors.New("issue action must be close|reopen")};n,e:=strconv.Atoi(pos[1]);if e!=nil||n<=0{return cmd,o,false,errors.New("Issue number must be positive")};if o.Issue>0&&o.Issue!=n{return cmd,o,false,errors.New("positional Issue and --issue disagree")};o.Issue=n;cmd="issue "+a
 	case "task":
 		if len(pos)!=2{return cmd,o,false,errors.New("Usage: iw task status|complete <issue>")};a:=strings.ToLower(pos[0]);if a!="status"&&a!="complete"{return cmd,o,false,errors.New("task action must be status|complete")};n,e:=strconv.Atoi(pos[1]);if e!=nil||n<=0{return cmd,o,false,errors.New("Issue number must be positive")};if o.Issue>0&&o.Issue!=n{return cmd,o,false,errors.New("positional Issue and --issue disagree")};o.Issue=n;cmd="task "+a
 	case "scope":
