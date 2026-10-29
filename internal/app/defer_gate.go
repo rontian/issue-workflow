@@ -31,6 +31,22 @@ func deferGate(ctx context.Context, s *WorkflowService, rep WorkflowReport, o Mu
         (requireReview && (review!="passed" || rep.Aggregate.ReviewHead!=rep.CurrentGit.Head)) {
         return domain.NewWorkflowError("REVIEW_REQUIRED", "defer requires no unresolved/stale review and a current-HEAD review when policy requires it")
     }
+    requirements:=domain.ValidationRequirements(rep.Contract)
+    records:=domain.ValidationRecordsFromEvents(rep.Aggregate.Events)
+    missing:=[]string{}
+    for _,requirement:=range requirements {
+        rec:=records[requirement.ID]
+        if len(domain.MissingValidationsAtHead([]domain.ValidationRequirement{requirement},records,rep.CurrentGit.Head))==0{continue}
+        if requirement.Kind=="manual_validation"||requirement.Kind=="real_resource_validation"{
+            item,ok:=domain.SettlementFind(rep.Settlement,"validation:"+requirement.ID)
+            if ok && item.Kind==requirement.Kind && item.Target=="defer" && (item.Disposition=="deferred" ||
+                (item.Disposition=="accepted_risk"&&item.FactStatus=="manual_required"&&rec.Status=="manual_required"&&rec.ObservedHead==rep.CurrentGit.Head&&domain.SettlementDispositionValidAtHead(item,rep.CurrentGit.Head))){
+                continue
+            }
+        }
+        missing=append(missing,requirement.ID)
+    }
+    if len(missing)>0{return domain.NewWorkflowError("VALIDATION_FAILED","defer requires passing automated validation and settled manual requirements: "+strings.Join(missing,","))}
     // Unlike a human --pushed claim, this checks exact published Git state.
     _,remote,err:=s.Git.ResolveRemote(ctx,rep.CurrentGit.RepositoryRoot,o.Remote)
     if err!=nil {
