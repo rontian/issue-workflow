@@ -99,7 +99,19 @@ negative() {
   if [ "$rc" -ne 0 ] && [ "$actual" = "$expected" ] && [ "$before" = "$after" ] &&
      jq -e '.ok == false and .schema == "iw.command-result/v2" and .machine.schema == "iw.machine-semantics/v1"' "$OUT/$name.json" >/dev/null; then
     record PASS "$name" "$rc" "$expected" "$actual" "$before" "$after"
-  else record FAIL "$name" "$rc" "$expected" "$actual" "$before" "$after"; exit 1; fi
+  else
+    # Infrastructure read failure is not a successful negative gate. Keep
+    # the sandbox, exact command result, and the no-append observation.
+    if [ "$actual" = GITHUB_UNAVAILABLE ]; then
+      record INFRA_FAIL "$name" "$rc" "$expected" "$actual" "$before" "$after"
+      jq -c '{code:.error.code,message:.error.message}' "$OUT/$name.json" >&2 2>/dev/null || :
+      echo "GitHub read unavailable. The negative business gate was NOT verified." >&2
+      echo "Preserved sandbox for read-only diagnosis: $OUT/checkout" >&2
+    else
+      record FAIL "$name" "$rc" "$expected" "$actual" "$before" "$after"
+    fi
+    exit 1
+  fi
 }
 # Never retry an ambiguous create: otherwise it could duplicate test Issues.
 positive create new --title "[iw-negative] $BRANCH" --goal 'Synthetic fail-closed acceptance' \
