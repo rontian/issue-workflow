@@ -114,3 +114,24 @@ func TestAdapterRejectsLocallyModifiedManagedTree(t *testing.T) {
 		})
 	}
 }
+
+
+func TestAdapterDoctorExposesModifiedManagedContent(t *testing.T) {
+	src,reg:=adapterFixture(t,true)
+	root:=t.TempDir()
+	s:=&AdapterService{Source:localAdapterSource{src},Registry:reg,Getenv:func(string)string{return root}}
+	if r,c:=s.Install(context.Background(),"test",false);c!=0||!r.OK{t.Fatalf("install: %d %#v",c,r)}
+	target:=filepath.Join(root,"skills","workflow")
+	if err:=os.WriteFile(filepath.Join(target,"user-extra.txt"),[]byte("keep"),0644);err!=nil{t.Fatal(err)}
+	r,c:=s.Status(context.Background(),"test")
+	if c!=result.ExitOK||!r.OK{t.Fatalf("status: %d %#v",c,r)}
+	status:=r.Data.(AdapterStatus)
+	if !status.Installed||status.Managed{t.Fatalf("modified managed tree misreported: %+v",status)}
+	found:=false
+	for _,warning:=range r.Warnings{if warning=="ADAPTER_UNMANAGED"{found=true}}
+	if !found{t.Fatalf("status warnings do not expose drift: %v",r.Warnings)}
+	r,c=s.Doctor(context.Background(),"test")
+	if c!=result.ExitConflict||r.OK||r.Error==nil||r.Error.Code!="ADAPTER_UNMANAGED"{
+		t.Fatalf("doctor must fail closed: %d %#v",c,r)
+	}
+}
