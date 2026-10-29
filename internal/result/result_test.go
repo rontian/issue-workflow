@@ -26,3 +26,50 @@ func TestNormalizeMachineClosedIssueRequiresExplicitGitHubReopen(t *testing.T){
 	if !foundAction{t.Fatalf("actions=%#v",r.Machine.NextActions)}
 	if len(r.Machine.AllowedActions)!=2||r.Machine.AllowedActions[0]!="context"||r.Machine.AllowedActions[1]!="status"{t.Fatalf("allowed=%v",r.Machine.AllowedActions)}
 }
+
+
+func TestNormalizeMachineV1SuppressesV2MutationActions(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		r CommandResult
+	}{
+		{"warning", func() CommandResult { r:=Success("status", nil);r.Warnings=[]string{"WORKFLOW_V1_COMPAT"};return r }()},
+		{"migration_error", Failure("start", "MIGRATION_REQUIRED", "explicit migrate first", nil, nil)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r:=tc.r
+			r.State="IN_PROGRESS"
+			r.Lifecycle="IN_PROGRESS"
+			NormalizeMachine(&r)
+			want:=[]string{"context","status","migrate"}
+			if len(r.Machine.AllowedActions)!=len(want) { t.Fatalf("allowed=%v",r.Machine.AllowedActions) }
+			for i,a:=range want { if r.Machine.AllowedActions[i]!=a { t.Fatalf("allowed=%v",r.Machine.AllowedActions) } }
+		})
+	}
+}
+
+func TestNormalizeMachineContractDriftPermitsOnlyReconciliation(t *testing.T) {
+	r:=Success("status",nil)
+	r.State="IN_PROGRESS"
+	r.Lifecycle="IN_PROGRESS"
+	r.Warnings=[]string{"CONTRACT_CHANGED"}
+	NormalizeMachine(&r)
+	want:=[]string{"context","status","scope"}
+	if len(r.Machine.AllowedActions)!=len(want) { t.Fatalf("allowed=%v",r.Machine.AllowedActions) }
+	for i,a:=range want { if r.Machine.AllowedActions[i]!=a { t.Fatalf("allowed=%v",r.Machine.AllowedActions) } }
+	if len(r.Machine.NextActions)==0||r.Machine.NextActions[0].ID!="scope_reconcile" {
+		t.Fatalf("next=%v",r.Machine.NextActions)
+	}
+}
+
+func TestNormalizeMachineInProgressIncludesTaskAndSettlement(t *testing.T) {
+	r:=Success("status",nil)
+	r.State="IN_PROGRESS"
+	r.Lifecycle="IN_PROGRESS"
+	NormalizeMachine(&r)
+	for _,want:=range []string{"task complete","settle"} {
+		found:=false
+		for _,action:=range r.Machine.AllowedActions { if action==want { found=true } }
+		if !found { t.Fatalf("%s omitted from allowed actions: %v",want,r.Machine.AllowedActions) }
+	}
+}
