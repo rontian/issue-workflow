@@ -218,9 +218,20 @@ run_live_step complete live_iw complete "$ISSUE" --summary "Synthetic end-to-end
 if ! jq -e '.lifecycle == "COMPLETED"' "$REPORT_DIR/live-complete.json" >/dev/null; then record FAIL completed-lifecycle 1;exit 1;fi
 record PASS completed-lifecycle 0
 
+# Native GitHub Issue close is explicit and independently confirmed by iw.
+run_live_step native-close-completed live_iw issue close "$ISSUE" || exit 1
+if ! jq -e '.data.desired_state == "CLOSED" and .data.applied == true' "$REPORT_DIR/live-native-close-completed.json" >/dev/null; then record FAIL github-close-confirmation 1;exit 1;fi
+record PASS github-close-confirmation 0
+
+# Cancel/reopen are distinct from completed and must preserve native state truth.
+run_live_step workflow-reopen live_iw reopen "$ISSUE" --reason "Synthetic black-box second segment" --operation-id "$OP-reopen" || exit 1
+run_live_step native-reopen live_iw issue reopen "$ISSUE" || exit 1
+run_live_step cancel live_iw cancel "$ISSUE" --reason "Black-box second segment intentionally cancelled" --operation-id "$OP-cancel" || exit 1
+run_live_step native-close-cancelled live_iw issue close "$ISSUE" || exit 1
+
 if [ "$CLEANUP" -eq 1 ]; then
   # Only clean artifacts this invocation created; do not delete pre-existing data.
-  run cleanup-issue gh issue close "$ISSUE" --repo "$TARGET_REPO" --reason "not planned" --comment "Completed isolated iw black-box verification; cleanup of this test Issue."
+  echo "Test Issue has already been closed by iw; GitHub Issue history is intentionally retained for audit."
   run cleanup-branch git -C "$CHECKOUT_A" push origin ":refs/heads/$TEST_BRANCH"
 else
   echo "Cleanup not requested. Only this run's test Issue and branch remain:"
