@@ -22,6 +22,7 @@ func (s *WorkflowService) Handoff(ctx context.Context, o MutationOptions) (resul
 func (s *WorkflowService) Block(ctx context.Context, o MutationOptions) (result.CommandResult, int) { return s.mutate(ctx, "block", domain.EventBlocked, o) }
 func (s *WorkflowService) Review(ctx context.Context, o MutationOptions) (result.CommandResult, int) { return s.mutate(ctx, "review", domain.EventReview, o) }
 func (s *WorkflowService) Fix(ctx context.Context, o MutationOptions) (result.CommandResult, int) { return s.mutate(ctx, "fix", domain.EventFix, o) }
+func (s *WorkflowService) TaskComplete(ctx context.Context, o MutationOptions) (result.CommandResult, int) { return s.mutate(ctx, "task complete", domain.EventTaskComplete, o) }
 func (s *WorkflowService) Complete(ctx context.Context, o MutationOptions) (result.CommandResult, int) { return s.mutate(ctx, "complete", domain.EventComplete, o) }
 func (s *WorkflowService) Final(ctx context.Context, o MutationOptions) (result.CommandResult, int) {
 	r, code := s.mutate(ctx, "final", domain.EventComplete, o)
@@ -74,8 +75,10 @@ func (s *WorkflowService) mutate(ctx context.Context, command string, t domain.W
 	if t != domain.EventScope { ev.Git = gitEventSnapshot(rep.CurrentGit) }
 	trial := append(append([]domain.WorkflowEvent(nil), rep.Aggregate.Events...), ev)
 	if _, err := domain.ReplayWorkflow(rep.Repository.FullName(), rep.Issue.Number, trial); err != nil { return mutationFailFrom(command, workflowErrorCode(err, "PROTOCOL_ERROR"), err.Error(), rep, rr) }
+	if _,err:=domain.ReplayTaskProgress(rep.Contract,trial);err!=nil{return mutationFailFrom(command,workflowErrorCode(err,"PROTOCOL_ERROR"),err.Error(),rep,rr)}
 	if t == domain.EventComplete { if err := completionGate(rep, o); err != nil { return mutationFailFrom(command, workflowErrorCode(err, "VALIDATION_FAILED"), err.Error(), rep, rr) } }
-	if t == domain.EventDefer { if err := deferGate(ctx, s, rep, o); err != nil { return mutationFailFrom(command, workflowErrorCode(err, "TRANSITION_BLOCKED"), err.Error(), rep, rr) } }
+	if t == domain.EventTaskComplete { if o.TaskID!=rep.TaskProgress.Current || rep.TaskProgress.Current=="" { return mutationFailFrom(command,"TRANSITION_BLOCKED","only the current planned Txx task can be completed",rep,rr) }; if rep.CurrentGit.Dirty || rep.GitDrift.Changed { return mutationFailFrom(command,"STALE_GIT_STATE","task completion requires a clean, checkpointed Git HEAD",rep,rr) } }
+	if t == domain.EventDefer { if !rep.TaskProgress.AllCompleted {return mutationFailFrom(command,"TRANSITION_BLOCKED","defer cannot settle unfinished planned Txx tasks without a typed settlement decision",rep,rr)};if err := deferGate(ctx, s, rep, o); err != nil { return mutationFailFrom(command, workflowErrorCode(err, "TRANSITION_BLOCKED"), err.Error(), rep, rr) } }
 	comment, err := domain.RenderWorkflowEvent(ev); if err != nil { return mutationFailFrom(command, "INTERNAL_ERROR", err.Error(), rep, rr) }
 	preview := MutationPreview{Event: ev, Comment: comment, OperationID: op, DryRun: o.DryRun}
 	if o.DryRun {
