@@ -6,6 +6,8 @@ func TestSettlementRiskNeverLiesAboutHardFacts(t *testing.T){
     base:=SettlementItem{ID:"validation:v1",Kind:"automated_validation",FactStatus:"fail",Disposition:"accepted_risk",Target:"complete",Head:"abc",DecidedBy:"owner",Reason:"I accept that this automated test failed."}
     if err:=ValidateSettlementItem(base,true);err==nil{t.Fatal("hard automated validation was waived")}
     base.Kind="manual_validation"
+    if err:=ValidateSettlementItem(base,true);err==nil{t.Fatal("confirmed manual failure cannot be waived")}
+    base.FactStatus="manual_required"
     if err:=ValidateSettlementItem(base,false);err==nil{t.Fatal("Agent claimed owner decision")}
     if err:=ValidateSettlementItem(base,true);err!=nil{t.Fatalf("explicit manual risk should be eligible: %v",err)}
     if !SettlementDispositionValidAtHead(base,"abc") || SettlementDispositionValidAtHead(base,"def"){t.Fatal("HEAD-bound risk expiration failed")}
