@@ -28,7 +28,7 @@ func parse(args []string)(string,options,bool,error){
 		if len(pos)!=2{return cmd,o,false,errors.New("Usage: iw task status|complete <issue>")};a:=strings.ToLower(pos[0]);if a!="status"&&a!="complete"{return cmd,o,false,errors.New("task action must be status|complete")};n,e:=strconv.Atoi(pos[1]);if e!=nil||n<=0{return cmd,o,false,errors.New("Issue number must be positive")};if o.Issue>0&&o.Issue!=n{return cmd,o,false,errors.New("positional Issue and --issue disagree")};o.Issue=n;cmd="task "+a
 	case "scope":
 		if len(pos)!=2{return cmd,o,false,errors.New("Usage: iw scope propose|accept|reject <issue>")};a:=strings.ToLower(pos[0]);if a!="propose"&&a!="accept"&&a!="reject"{return cmd,o,false,errors.New("scope action must be propose|accept|reject")};o.ScopeAction=a;n,e:=strconv.Atoi(pos[1]);if e!=nil||n<=0{return cmd,o,false,errors.New("Issue number 必须是正整数")};if o.Issue>0&&o.Issue!=n{return cmd,o,false,errors.New("positional Issue 与 --issue 不一致")};o.Issue=n
-	case "status","context","migrate","resume","start","pause","wait","recheck","defer","restore","checkpoint","handoff","block","review","fix","complete","final","cancel","reopen":
+	case "status","context","migrate","settle","resume","start","pause","wait","recheck","defer","restore","checkpoint","handoff","block","review","fix","complete","final","cancel","reopen":
 		if len(pos)>1{return cmd,o,false,errors.New("只允许一个 Issue number")};if len(pos)==1{n,e:=strconv.Atoi(pos[0]);if e!=nil||n<=0{return cmd,o,false,errors.New("Issue number 必须是正整数")};if o.Issue>0&&o.Issue!=n{return cmd,o,false,errors.New("positional Issue 与 --issue 不一致")};o.Issue=n};if o.Issue<=0{return cmd,o,false,errors.New("缺少 Issue number")}
 	default:return cmd,o,false,fmt.Errorf("unknown command %q",cmd)
 	}
