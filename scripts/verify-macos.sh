@@ -154,13 +154,15 @@ if [ "$FAILURES" -ne 0 ]; then exit 1; fi
 
 cd "$CHECKOUT_A" || exit 1
 OP="iw-blackbox-${STAMP}-$$"
-if ! run_live_step create live_iw new --title "[iw-blackbox] $OP" --goal "Verify iw with a dedicated test-only issue" --scope "Exercise the Core lifecycle" --out-of-scope "Modify unrelated repository data" --acceptance "The workflow is verified" --validation "true" --operation-id "$OP"; then exit 1; fi
+if ! run_live_step create live_iw new --title "[iw-blackbox] $OP" --goal "Verify iw with a dedicated test-only issue" --scope "Exercise the Core lifecycle" --out-of-scope "Modify unrelated repository data" --acceptance "The workflow is verified" --task "T01: Synthetic first milestone" --task "T02: Synthetic later milestone" --validation "true" --operation-id "$OP"; then exit 1; fi
 ISSUE="$(jq -r '.issue // empty' "$REPORT_DIR/live-create.json")"
 case "$ISSUE" in ''|*[!0-9]*) echo "Could not identify created Issue" >&2;record FAIL issue-number 1;exit 1;; esac
 echo "Test Issue: https://github.com/$TARGET_REPO/issues/$ISSUE"
 run_live_step doctor live_iw doctor --issue "$ISSUE" || exit 1
 run_live_step start live_iw start "$ISSUE" --operation-id "$OP-start" || exit 1
 run_live_step checkpoint live_iw checkpoint "$ISSUE" --summary "Safe synthetic milestone" --next "test external wait" --validation "v1=pass:synthetic true check" --operation-id "$OP-checkpoint" || exit 1
+run_live_step task-status-a live_iw task status "$ISSUE" || exit 1
+run_live_step task-one live_iw task complete "$ISSUE" --task-id T01 --summary "Synthetic implementation T01 completed" --operation-id "$OP-t1" || exit 1
 
 run_live_step wait live_iw wait "$ISSUE" --reason "CI and manual condition" --next "recheck both" --condition ci=waiting:synthetic-pending --condition owner=waiting:synthetic-pending --operation-id "$OP-wait" || exit 1
 run_live_step recheck-partial live_iw recheck "$ISSUE" --condition ci=resolved:synthetic-test-succeeded --condition owner=waiting:synthetic-pending --operation-id "$OP-partial" || exit 1
@@ -170,10 +172,12 @@ run_live_step recheck-all live_iw recheck "$ISSUE" --condition ci=resolved:synth
 if ! jq -e '.lifecycle == "IN_PROGRESS"' "$REPORT_DIR/live-recheck-all.json" >/dev/null; then record FAIL all-exits-waiting 1;exit 1;fi
 record PASS all-exits-waiting 0
 
+run_live_step settle-later-task live_iw settle "$ISSUE" --item-id task:T02 --kind implementation --fact pending --disposition deferred --target defer --reason "Move synthetic T02 into the next explicit milestone" --operation-id "$OP-settle-t2" || exit 1
 run_live_step defer live_iw defer "$ISSUE" --reason "later milestone" --next "resume test" --operation-id "$OP-defer" || exit 1
 if ! jq -e '.lifecycle == "DEFERRED"' "$REPORT_DIR/live-defer.json" >/dev/null; then record FAIL deferred-lifecycle 1;exit 1;fi
 record PASS deferred-lifecycle 0
 run_live_step resume live_iw resume "$ISSUE" --summary "resumed in test" --operation-id "$OP-resume" || exit 1
+run_live_step task-two live_iw task complete "$ISSUE" --task-id T02 --summary "Synthetic implementation T02 completed after resume" --operation-id "$OP-t2" || exit 1
 run_live_step handoff live_iw handoff "$ISSUE" --summary "published exact HEAD" --next "restore in checkout-b" --portable --operation-id "$OP-handoff" || exit 1
 
 cd "$REPORT_DIR" || exit 1
@@ -183,6 +187,8 @@ cd "$CHECKOUT_B" || exit 1
 run_live_step restore-preview live_iw restore "$ISSUE" || exit 1
 run_live_step restore-apply live_iw restore "$ISSUE" --apply || exit 1
 run_live_step context-b live_iw context "$ISSUE" || exit 1
+if ! jq -e '.data.task_progress.all_completed == true and (.data.settlement.items | length) == 0' "$REPORT_DIR/live-context-b.json" >/dev/null; then record FAIL segment-facts-restored 1;exit 1;fi
+record PASS segment-facts-restored 0
 if ! jq -e '.data.schema == "iw.context/v1"' "$REPORT_DIR/live-context-b.json" >/dev/null; then record FAIL portable-context-schema 1;exit 1;fi
 record PASS portable-context-schema 0
 
