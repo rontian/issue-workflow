@@ -139,4 +139,8 @@ Adapter lifecycle is now implemented in Core v2. The Codex Adapter manifest rema
 
 Core v2 writes `iw.command-result/v2` and `iw.workflow-event/v2` and exposes `iw.context/v1`, `iw.capabilities/v1`, and `iw.machine-semantics/v1`. The legacy `iw.task-contract/v1` and v1 event reader remain compatible; workflow event migration is explicit (`iw migrate`). Unknown schemas fail closed.
 
-**Do not confuse implemented commands with Pi parity sign-off.** Core still needs task-level transition guards, structured per-item settlement, complete external-wait reconciliation, and real GitHub acceptance. See `docs/pi-issue-parity-audit.md` and `issue-workflow#3`.
+**Do not confuse implemented commands with Core sign-off.** The candidate branch now implements Txx task guards, structured per-item settlement and named external-wait reconciliation; these features have selected positive real-GitHub evidence at `e8d0b80`, but the full negative, migration, privacy, adapter and release matrix remains open. See `docs/core-v2-acceptance-matrix.md`, `docs/pi-issue-parity-audit.md` and Issue #3.
+
+### Machine action permissions under reconciliation
+
+`iw.machine-semantics/v1` `allowed_actions` is a protocol projection, not a grant to bypass preflight guards. To avoid advertising impossible v2 writes, the current Core limits machine actions to `context`, `status` and `migrate` for pre-migration v1 histories. After Task Contract digest drift, only `context`, `status` and `scope` reconciliation are advertised. A closed active GitHub Issue remains read-only until explicit native state reconciliation. The Core still validates every concrete mutation at execution time.
