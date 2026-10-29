@@ -17,6 +17,7 @@ mkdir -p "$BIN_DIR"
 TARGET_REPO="rontian/pi-test"
 LIVE=0
 CLEANUP=0
+RESUME_ISSUE=""
 FAILURES=0
 ISSUE=""
 TEST_BRANCH=""
@@ -31,20 +32,30 @@ git -C "$ROOT" rev-parse HEAD >> "$REPORT_DIR/meta.txt" 2>/dev/null || :
 git -C "$ROOT" branch --show-current >> "$REPORT_DIR/meta.txt" 2>/dev/null || :
 
 usage() {
-  echo "Usage: bash scripts/verify-macos.sh [--live] [--cleanup]"
+  echo "Usage: bash scripts/verify-macos.sh [--live] [--cleanup] [--resume-issue N]"
   echo "Default: local Go tests, race, vet, build, install and CLI smoke (no GitHub writes)."
   echo "--live requires IW_TEST_CONFIRM=YES; writes only to test branch and fresh [iw-blackbox] Issue in rontian/pi-test."
-  echo "--cleanup can be combined with --live, closes ONLY the newly created Issue and deletes ONLY the newly created test branch."
+  echo "--cleanup can be combined with --live; deletes ONLY a test branch created in this invocation."
+  echo "--resume-issue N continues one existing [iw-blackbox] test Issue after START/CHECKPOINT; it never creates a new Issue or branch."
 }
 
-for arg in "$@"; do
-  case "$arg" in
-    --live) LIVE=1 ;;
-    --cleanup) CLEANUP=1 ;;
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --live) LIVE=1; shift ;;
+    --cleanup) CLEANUP=1; shift ;;
+    --resume-issue)
+      if [ "$#" -lt 2 ]; then usage; exit 2; fi
+      RESUME_ISSUE="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) usage; exit 2 ;;
   esac
 done
+if [ -n "$RESUME_ISSUE" ]; then
+  case "$RESUME_ISSUE" in *[!0-9]*|'') echo "Invalid --resume-issue number" >&2; exit 2 ;; esac
+  if [ "$RESUME_ISSUE" -le 0 ] || [ "$LIVE" -ne 1 ] || [ "$CLEANUP" -eq 1 ]; then
+    echo "--resume-issue requires --live and excludes --cleanup" >&2; exit 2
+  fi
+fi
 if [ "$CLEANUP" -eq 1 ] && [ "$LIVE" -ne 1 ]; then
   echo "--cleanup requires --live" >&2; exit 2
 fi
@@ -105,16 +116,32 @@ clone_sandbox_checkout() {
 run_live_step() {
   name="$1"; shift
   log="$REPORT_DIR/live-$name.json"
-  if "$@" > "$log" 2> "$REPORT_DIR/live-$name.stderr"; then
-    if jq -e '.ok == true and .schema == "iw.command-result/v2"' "$log" >/dev/null; then
-      record PASS "$name" 0; return 0
+  attempts=1
+  while [ "$attempts" -le 3 ]; do
+    if "$@" > "$log" 2> "$REPORT_DIR/live-$name.stderr"; then
+      rc=0
+      if jq -e '.ok == true and .schema == "iw.command-result/v2"' "$log" >/dev/null 2>&1; then
+        record PASS "$name" 0; return 0
+      fi
+    else
+      rc=$?
     fi
-    record FAIL "$name" 1
-  else
-    rc=$?
-    record FAIL "$name" "$rc"
-  fi
-  tail -n 20 "$log" 2>/dev/null >&2 || :
+    errcode="$(jq -r '.error.code // empty' "$log" 2>/dev/null || :)"
+    echo "live/$name attempt $attempts: exit=$rc error=${errcode:-unavailable}" >&2
+    if [ "$attempts" -lt 3 ] && [ "$rc" -eq 4 ]; then
+      case "$errcode" in
+        GITHUB_UNAVAILABLE|REPOSITORY_NOT_FOUND|ISSUE_NOT_FOUND)
+          echo "Retrying identical command (operation ID unchanged)." >&2
+          sleep $((attempts * 2))
+          attempts=$((attempts+1))
+          continue ;;
+      esac
+    fi
+    break
+  done
+  record FAIL "$name" "$rc"
+  jq -c '{ok,error,state,lifecycle}' "$log" >&2 2>/dev/null || :
+  tail -n 10 "$REPORT_DIR/live-$name.stderr" >&2 2>/dev/null || :
   return 1
 }
 finish() {
@@ -168,22 +195,58 @@ fi
 run auth bash -c 'gh auth status >/dev/null 2>&1'
 if [ "$FAILURES" -ne 0 ]; then exit 1; fi
 
-TEST_BRANCH="iw-blackbox-${STAMP}-$$"
 CHECKOUT_A="$REPORT_DIR/checkout-a"
 CHECKOUT_B="$REPORT_DIR/checkout-b"
-run clone-a clone_sandbox_checkout "$CHECKOUT_A"
-if [ ! -d "$CHECKOUT_A/.git" ]; then exit 1; fi
-run branch-a git -C "$CHECKOUT_A" switch -c "$TEST_BRANCH"
-run commit-a git -C "$CHECKOUT_A" -c user.name="iw-blackbox" -c user.email="iw-blackbox@users.noreply.github.com" -c commit.gpgsign=false commit --allow-empty -m "[iw-blackbox] isolated workflow HEAD $STAMP"
-run publish-a git -C "$CHECKOUT_A" push -u origin "$TEST_BRANCH"
-if [ "$FAILURES" -ne 0 ]; then exit 1; fi
-PUBLISHED_BRANCH="$TEST_BRANCH"
+if [ -n "$RESUME_ISSUE" ]; then
+  ISSUE="$RESUME_ISSUE"
+  # Verify native Issue identity and a matching Task Contract before touching it.
+  if ! run resume-inspect gh issue view "$ISSUE" --repo "$TARGET_REPO" --json title,state,body; then exit 1; fi
+  gh issue view "$ISSUE" --repo "$TARGET_REPO" --json title,state,body > "$REPORT_DIR/live-reuse-issue.json" || { record FAIL reuse-inspect 4; exit 1; }
+  issue_title="$(jq -r '.title // empty' "$REPORT_DIR/live-reuse-issue.json")"
+  case "$issue_title" in
+    '[iw-blackbox] iw-blackbox-'*) TEST_BRANCH="${issue_title#'[iw-blackbox] '}" ;;
+    *) echo "Refusing non-blackbox Issue" >&2; record FAIL reuse-identity 2; exit 1 ;;
+  esac
+  if ! printf '%s\n' "$TEST_BRANCH" | grep -Eq '^iw-blackbox-[0-9]{8}T[0-9]{6}Z-[0-9]+$'; then
+    echo "Refusing unexpected branch identity" >&2; record FAIL reuse-identity 2; exit 1
+  fi
+  if ! jq -e --arg op "$TEST_BRANCH" '.state == "OPEN" and (.body | contains($op)) and (.body | contains("iw:task-contract:v1"))' "$REPORT_DIR/live-reuse-issue.json" >/dev/null; then
+    echo "Refusing changed/non-open test Issue" >&2; record FAIL reuse-contract 2; exit 1
+  fi
+  # This recovery entry point intentionally supports only early START/CHECKPOINT
+  # failures. Later states require a dedicated stage-aware continuation.
+  if ! run reuse-events gh api "repos/$TARGET_REPO/issues/$ISSUE/comments?per_page=100"; then exit 1; fi
+  gh api "repos/$TARGET_REPO/issues/$ISSUE/comments?per_page=100" > "$REPORT_DIR/live-reuse-comments.json" || { record FAIL reuse-events 4; exit 1; }
+  if ! jq -e 'length <= 2 and all(.[]; (.body | contains("\"event_type\":\"START\"") or contains("\"event_type\":\"CHECKPOINT\"")))' "$REPORT_DIR/live-reuse-comments.json" >/dev/null; then
+    echo "Existing Issue is past checkpoint; refusing to replay earlier stages" >&2; record FAIL reuse-stage 2; exit 1
+  fi
+  run clone-a clone_sandbox_checkout "$CHECKOUT_A"
+  if [ "$FAILURES" -ne 0 ]; then exit 1; fi
+  run fetch-a git -C "$CHECKOUT_A" fetch --no-tags origin "+refs/heads/$TEST_BRANCH:refs/remotes/origin/$TEST_BRANCH"
+  if [ "$FAILURES" -ne 0 ]; then exit 1; fi
+  run branch-a git -C "$CHECKOUT_A" switch --track -c "$TEST_BRANCH" "origin/$TEST_BRANCH"
+  if [ "$FAILURES" -ne 0 ]; then exit 1; fi
+  PUBLISHED_BRANCH="$TEST_BRANCH"
+  OP="$TEST_BRANCH"
+  record PASS reuse-existing 0
+else
+  TEST_BRANCH="iw-blackbox-${STAMP}-$$"
+  run clone-a clone_sandbox_checkout "$CHECKOUT_A"
+  if [ "$FAILURES" -ne 0 ]; then exit 1; fi
+  run branch-a git -C "$CHECKOUT_A" switch -c "$TEST_BRANCH"
+  run commit-a git -C "$CHECKOUT_A" -c user.name="iw-blackbox" -c user.email="iw-blackbox@users.noreply.github.com" -c commit.gpgsign=false commit --allow-empty -m "[iw-blackbox] isolated workflow HEAD $STAMP"
+  run publish-a git -C "$CHECKOUT_A" push -u origin "$TEST_BRANCH"
+  if [ "$FAILURES" -ne 0 ]; then exit 1; fi
+  PUBLISHED_BRANCH="$TEST_BRANCH"
+  OP="$TEST_BRANCH"
+fi
 
 cd "$CHECKOUT_A" || exit 1
-OP="iw-blackbox-${STAMP}-$$"
-if ! run_live_step create live_iw new --title "[iw-blackbox] $OP" --goal "Verify iw with a dedicated test-only issue" --scope "Exercise the Core lifecycle" --out-of-scope "Modify unrelated repository data" --acceptance "The workflow is verified" --task "T01: Synthetic first milestone" --task "T02: Synthetic later milestone" --validation "true" --operation-id "$OP"; then exit 1; fi
-ISSUE="$(jq -r '.issue // empty' "$REPORT_DIR/live-create.json")"
-case "$ISSUE" in ''|*[!0-9]*) echo "Could not identify created Issue" >&2;record FAIL issue-number 1;exit 1;; esac
+if [ -z "$RESUME_ISSUE" ]; then
+  if ! run_live_step create live_iw new --title "[iw-blackbox] $OP" --goal "Verify iw with a dedicated test-only issue" --scope "Exercise the Core lifecycle" --out-of-scope "Modify unrelated repository data" --acceptance "The workflow is verified" --task "T01: Synthetic first milestone" --task "T02: Synthetic later milestone" --validation "true" --operation-id "$OP"; then exit 1; fi
+  ISSUE="$(jq -r '.issue // empty' "$REPORT_DIR/live-create.json")"
+  case "$ISSUE" in ''|*[!0-9]*) echo "Could not identify created Issue" >&2;record FAIL issue-number 1;exit 1;; esac
+fi
 echo "Test Issue: https://github.com/$TARGET_REPO/issues/$ISSUE"
 run_live_step doctor live_iw doctor --issue "$ISSUE" || exit 1
 run_live_step start live_iw start "$ISSUE" --operation-id "$OP-start" || exit 1
