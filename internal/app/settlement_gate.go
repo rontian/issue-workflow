@@ -20,7 +20,7 @@ func deferSettlementGate(rep WorkflowReport)error{
         }
     }
     for _,item:=range rep.Settlement.Items {
-        if item.Target!="defer"{continue}
+        if item.Target!="defer"{if item.Disposition=="none"||item.Disposition=="kept_required"{return domain.NewWorkflowError("TRANSITION_BLOCKED","unresolved completion-target settlement item "+item.ID)};continue}
         switch item.Disposition{
         case "resolved","not_applicable","deferred":
         case "accepted_risk":
@@ -80,7 +80,7 @@ func validationRiskSettled(rep WorkflowReport,req domain.ValidationRequirement,r
 
 func completeSettlementGate(rep WorkflowReport)error{
     for _,item:=range rep.Settlement.Items{
-        if item.Target!="complete"{continue}
+        if item.Target!="complete"{if item.Disposition=="deferred"||item.Disposition=="none"||item.Disposition=="kept_required"{return domain.NewWorkflowError("TRANSITION_BLOCKED","completion cannot bypass future/unsettled item "+item.ID)};continue}
         switch item.Disposition{
         case "resolved","not_applicable":
         case "accepted_risk":
