@@ -19,6 +19,7 @@ Project / task read model:
   iw tasks
   iw task status <issue>
   iw task complete <issue> --task-id T01 --summary S
+  iw settle <issue> --item-id ID --kind KIND --fact STATUS --disposition DECISION --target complete|defer --reason R [--owner-confirmed]
   iw next
   iw context <issue>
   iw status <issue>
